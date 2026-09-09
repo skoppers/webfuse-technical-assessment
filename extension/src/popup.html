@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Session activity</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: transparent; }
+    body {
+      font: 12px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: light-dark(#1f2937, #e5e7eb);
+      padding: 6px;
+    }
+    .card {
+      background: light-dark(rgba(255,255,255,.94), rgba(17,24,39,.94));
+      border: 1px solid light-dark(#e5e7eb, #374151);
+      border-radius: 10px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.18);
+      padding: 10px 12px;
+      backdrop-filter: blur(6px);
+    }
+    .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+    .head h1 { font-size: 12px; font-weight: 600; margin: 0; letter-spacing: .02em; }
+    .head .rate { font-variant-numeric: tabular-nums; opacity: .8; }
+    .bar { height: 6px; border-radius: 3px; background: light-dark(#e5e7eb, #374151); overflow: hidden; }
+    .bar > i { display: block; height: 100%; width: 0; background: #3b82f6; transition: width .25s ease; }
+    .counters { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px 8px; margin: 8px 0; }
+    .counters div { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+    .counters span:first-child { opacity: .65; }
+    .counters .key { color: #d97706; font-weight: 600; }
+    .feed { list-style: none; margin: 0; padding: 0; border-top: 1px solid light-dark(#e5e7eb, #374151); }
+    .feed li {
+      display: grid; grid-template-columns: 78px 1fr auto; gap: 6px;
+      padding: 3px 0; white-space: nowrap; overflow: hidden;
+    }
+    .feed li > span { overflow: hidden; text-overflow: ellipsis; }
+    .feed .type { font-weight: 600; opacity: .8; }
+    .feed .time { opacity: .5; font-variant-numeric: tabular-nums; }
+    .feed li.key { background: light-dark(#fef3c7, rgba(217,119,6,.18)); border-radius: 4px; padding-left: 4px; margin-left: -4px; }
+    .feed li.key .type { color: #d97706; opacity: 1; }
+    .empty { opacity: .5; text-align: center; padding: 6px 0; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="head">
+      <h1>Session activity</h1>
+      <span class="rate"><b id="rate">0</b> ev/10s</span>
+    </div>
+    <div class="bar"><i id="bar"></i></div>
+    <div class="counters" id="counters"></div>
+    <ul class="feed" id="feed"><li class="empty">waiting for activity…</li></ul>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

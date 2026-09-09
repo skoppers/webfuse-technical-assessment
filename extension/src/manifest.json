@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "session-activity-analyzer",
+  "version": "0.1.0",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "js": ["content.js"],
+      "matches": ["<all_urls>"],
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "24": "icon24.png"
+    }
+  },
+  "host_permissions": ["<all_urls>"],
+  "env": [
+    {
+      "key": "COLLECTOR_URL",
+      "value": "",
+      "description": "Public origin of the ingest server (e.g. https://collector.example.com). No secrets."
+    }
+  ]
+}
