@@ -18,6 +18,7 @@ import (
 
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/config"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/httpx"
+	"github.com/skoppers/webfuse-activity-analyzer/server/internal/store"
 	"github.com/skoppers/webfuse-activity-analyzer/server/web"
 )
 
@@ -42,6 +43,15 @@ func run(log *slog.Logger) error {
 	// (stream hub, reaper).
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	db, err := store.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if err := store.Migrate(ctx, db); err != nil {
+		return err
+	}
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

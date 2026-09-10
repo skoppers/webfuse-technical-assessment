@@ -26,6 +26,28 @@ curl localhost:8080/healthz   # {"ok":true}
 | `REAPER_TICK_SECONDS` | `30` | Reaper sweep interval. |
 | `CORS_ORIGIN` | `*` | `Access-Control-Allow-Origin` for `/ingest`. |
 
+## Database
+
+The server needs Postgres 14+ and applies its embedded migrations on every start
+(a second start is a no-op). Point `DATABASE_URL` at either:
+
+- a hosted instance (e.g. an Aiven service URL with `?sslmode=require`), or
+- a local container:
+
+  ```sh
+  docker run --rm -d --name saa-pg -e POSTGRES_HOST_AUTH_METHOD=trust \
+    -e POSTGRES_DB=saa -p 5432:5432 postgres:16
+  export DATABASE_URL='postgres://postgres@localhost:5432/saa?sslmode=disable'
+  ```
+
+Store integration tests run only when `TEST_DATABASE_URL` is set. They migrate and
+truncate the tables, so use a throwaway database:
+
+```sh
+createdb saa_test
+TEST_DATABASE_URL='postgres://localhost:5432/saa_test?sslmode=disable' go test ./internal/store/...
+```
+
 ## Layout
 
 | Path | Purpose |
@@ -33,6 +55,7 @@ curl localhost:8080/healthz   # {"ok":true}
 | `cmd/server/main.go` | Wiring only: config → deps → routes → run, graceful shutdown. |
 | `internal/config/` | `Config` + `Load()` from env. |
 | `internal/httpx/` | JSON read/write, error responses, request-logging middleware. |
+| `internal/store/` | Postgres handle (`Open`), embedded goose migrations (`Migrate`), schema in `migrations/`. |
 | `web/` | Dashboard assets embedded via `embed.FS`, served at `/`. |
 
 Reserved route prefixes for later packages: `/api`, `/ingest`, `/stream`, `/webhooks`.
