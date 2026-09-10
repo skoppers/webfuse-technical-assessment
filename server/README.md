@@ -60,6 +60,20 @@ Regenerate queries after editing `internal/store/queries.sql` or the migrations:
 | `internal/httpx/` | JSON read/write, error responses, request-logging middleware. |
 | `internal/store/` | Postgres handle (`Open`), embedded goose migrations (`Migrate`), schema in `migrations/`, queries in `queries.sql`, `Store` wrapper in `store.go`. |
 | `internal/store/gen/` | sqlc output for `queries.sql` (generated, do not edit). |
+| `internal/stream/` | In-process pub/sub `Hub`, SSE wire payloads (`SessionMessage`, `ActivityMessage`), and the `/stream` handlers. |
 | `web/` | Dashboard assets embedded via `embed.FS`, served at `/`. |
 
-Reserved route prefixes for later packages: `/api`, `/ingest`, `/stream`, `/webhooks`.
+Reserved route prefixes for later packages: `/api`, `/ingest`, `/webhooks`.
+
+## Endpoints
+
+| Route | Purpose |
+|---|---|
+| `GET /healthz` | Liveness check, `{"ok":true}`. |
+| `GET /stream` | SSE overview: every `session` message plus key `activity` events. |
+| `GET /stream/{id}` | SSE for one session: every `session` and `activity` message for `{id}`. |
+
+SSE frames are `id: N`, `event: session|activity`, `data: <single-line JSON>`, blank line;
+`: ping` is sent every 15 s while idle. A client that falls more than 64 messages behind
+is disconnected (no replay); it should reconnect and re-read `GET /api/sessions`.
+`Last-Event-ID` is accepted and logged but not used for replay.

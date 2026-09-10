@@ -19,6 +19,7 @@ import (
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/config"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/httpx"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/store"
+	"github.com/skoppers/webfuse-activity-analyzer/server/internal/stream"
 	"github.com/skoppers/webfuse-activity-analyzer/server/web"
 )
 
@@ -53,11 +54,16 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
+	hub := stream.NewHub()
+
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           newRouter(log),
+		Handler:           newRouter(log, hub),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	// Open SSE streams never go idle on their own; close the hub so they end
+	// and Shutdown can drain the remaining ordinary requests.
+	srv.RegisterOnShutdown(hub.Close)
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
@@ -79,9 +85,10 @@ func run(log *slog.Logger) error {
 	return nil
 }
 
-// newRouter mounts all routes. /api, /ingest, /stream and /webhooks are
-// reserved for the API, ingest, stream and webhook handlers; everything else falls through to the embedded web/.
-func newRouter(log *slog.Logger) http.Handler {
+// newRouter mounts all routes. /api, /ingest and /webhooks are reserved for
+// the API, ingest and webhook handlers; everything else falls through to the
+// embedded web/.
+func newRouter(log *slog.Logger, hub *stream.Hub) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -92,6 +99,7 @@ func newRouter(log *slog.Logger) http.Handler {
 		httpx.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	})
 
+	r.Mount("/stream", stream.Handler(hub))
 	r.Handle("/*", http.FileServerFS(web.Assets))
 	return r
 }
