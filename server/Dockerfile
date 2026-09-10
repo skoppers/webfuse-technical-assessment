@@ -1,19 +1,13 @@
 # syntax=docker/dockerfile:1
 # Build context is the repo root:  docker build -f server/Dockerfile .
 
-# Placeholder until the dashboard build lands: copies the stub page through.
-# The Vue build will run `npm ci && npm run build` here.
-FROM node:20-alpine AS web
-WORKDIR /web
-COPY server/web/ ./
-
-# Compile the server with the web assets embedded.
+# Compile the server with the static dashboard (server/web/) embedded. No Node stage:
+# the dashboard is plain HTML + JS with no build step.
 FROM golang:1.27-alpine AS build
 WORKDIR /src
 COPY server/go.mod server/go.sum ./
 RUN go mod download
 COPY server/ ./
-COPY --from=web /web/ ./web/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
 
 # Static binary only; migrations are embedded, so nothing else is copied.

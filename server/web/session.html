@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Session · Webfuse Activity Analyzer</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1><a href="/">Webfuse Activity Analyzer</a></h1>
+      <span class="muted">/ session</span>
+      <span class="spacer"></span>
+      <span class="conn" id="conn" data-state="connecting" hidden>connecting</span>
+    </header>
+    <main>
+      <div class="detail-head" id="head"></div>
+
+      <div class="grid">
+        <aside class="panel" id="meter">
+          <h3>Live meter</h3>
+          <div class="rate"><span class="n">0</span><span class="unit">events / 10s</span></div>
+          <div class="bar"><div></div></div>
+          <dl class="counters"></dl>
+          <h3 style="margin-top:14px">Last 5</h3>
+          <ul class="recent"></ul>
+        </aside>
+
+        <section class="panel">
+          <div class="controls" id="controls" hidden>
+            <button id="play">▶ Play</button>
+            <div class="progress"><div id="progress"></div></div>
+            <span class="clock" id="clock"></span>
+          </div>
+          <h3 id="feedTitle">Event feed</h3>
+          <ul class="feed" id="feed"></ul>
+          <p class="empty" id="feedEmpty">Waiting for events…</p>
+        </section>
+      </div>
+    </main>
+
+    <script type="module">
+      import {
+        api, subscribe, createMeter, renderMeter, badge, statusPill, esc,
+        shortId, duration, dateTime, clockTime, formatEventLabel, isKey, bindConnState,
+      } from "/app.js";
+
+      const $ = (id) => document.getElementById(id);
+      const id = new URLSearchParams(location.search).get("id");
+
+      const feed = $("feed");
+      const feedEmpty = $("feedEmpty");
+      const MAX_FEED = 500;
+      let session = null;
+
+      // ---- shared rendering -------------------------------------------------
+
+      function renderHead() {
+        const s = session;
+        const now = Date.now();
+        $("head").innerHTML = `
+          <h2 class="mono" title="${esc(s.session_id)}">${esc(shortId(s.session_id))}</h2>
+          ${statusPill(s.status)}
+          <dl>
+            <div><dt>space</dt><dd class="mono">${esc(s.space_id)}</dd></div>
+            <div><dt>started</dt><dd>${esc(dateTime(s.started_at))}</dd></div>
+            <div><dt>duration</dt><dd class="mono">${esc(duration(s.started_at, s.ended_at ?? now))}</dd></div>
+            <div><dt>participants</dt><dd>${s.participant_count}</dd></div>
+            <div><dt>source</dt><dd>${esc(s.source)}</dd></div>
+          </dl>`;
+        document.title = `${shortId(s.session_id)} · Webfuse Activity Analyzer`;
+      }
+
+      function feedRow(e) {
+        const li = document.createElement("li");
+        if (isKey(e.type)) li.className = "key";
+        li.innerHTML = `
+          <span class="seq mono">#${e.seq}</span>
+          <span class="mono muted">${esc(clockTime(e.ts))}</span>
+          ${badge(e.type)}
+          <span class="label mono">${esc(formatEventLabel(e))}</span>`;
+        return li;
+      }
+
+      function appendToFeed(e) {
+        feedEmpty.hidden = true;
+        const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
+        feed.appendChild(feedRow(e));
+        while (feed.children.length > MAX_FEED) feed.removeChild(feed.firstChild);
+        if (atBottom) feed.scrollTop = feed.scrollHeight;
+      }
+
+      function clearFeed() {
+        feed.innerHTML = "";
+        feedEmpty.hidden = false;
+      }
+
+      // ---- live mode ----------------------------------------------------------
+
+      let closeStream = null;
+      let liveTicker = null;
+
+      // The per-session stream has no history, so a page opened mid-session
+      // backfills from the log first. Stream frames that arrive while the
+      // backfill is in flight are held and applied after it, deduped on seq.
+      async function startLive() {
+        $("controls").hidden = true;
+        $("conn").hidden = false;
+        $("feedTitle").textContent = "Live feed";
+        const meter = createMeter();
+        const seen = new Set();
+        let pending = [];
+        const tick = () => renderMeter($("meter"), meter.snapshot());
+        tick();
+
+        const apply = (a) => {
+          if (seen.has(a.seq)) return;
+          seen.add(a.seq);
+          meter.add(a, a.ts);
+          appendToFeed(a);
+        };
+
+        closeStream = subscribe(`/stream/${encodeURIComponent(id)}`, {
+          onState: bindConnState($("conn")),
+          onSession(s) {
+            // The stream payload lacks source/metadata; keep them from the API read.
+            session = { ...session, ...s };
+            renderHead();
+            if (s.status === "ended") switchToReplay();
+          },
+          onActivity(a) {
+            if (pending) { pending.push(a); return; }
+            apply(a);
+            tick();
+          },
+          onReconnect: async () => {
+            try {
+              session = await api.session(id);
+              renderHead();
+              if (session.status === "ended") switchToReplay();
+            } catch (err) { console.error(err); }
+          },
+        });
+        liveTicker = setInterval(() => { tick(); renderHead(); }, 1000);
+
+        try {
+          for (const e of await api.events(id)) apply(e);
+        } catch (err) {
+          console.error("backfill", err);
+        }
+        const held = pending;
+        pending = null;
+        for (const a of held) apply(a);
+        tick();
+      }
+
+      function stopLive() {
+        closeStream?.(); closeStream = null;
+        clearInterval(liveTicker); liveTicker = null;
+        $("conn").hidden = true;
+      }
+
+      async function switchToReplay() {
+        stopLive();
+        await startReplay();
+      }
+
+      // ---- replay mode --------------------------------------------------------
+
+      // Playback is paced by client-ts deltas between consecutive events, with
+      // idle gaps capped so quiet stretches don't stall. Play/pause only.
+      const MAX_GAP_MS = 3000;
+
+      async function startReplay() {
+        $("feedTitle").textContent = "Replay";
+        $("controls").hidden = false;
+        clearFeed();
+        feedEmpty.textContent = "Loading log…";
+
+        let events;
+        try {
+          events = await api.events(id);
+        } catch (err) {
+          feedEmpty.textContent = `Could not load events: ${err.message}`;
+          return;
+        }
+        if (events.length === 0) {
+          feedEmpty.textContent = "This session recorded no events.";
+          $("play").disabled = true;
+          renderMeter($("meter"), createMeter().snapshot());
+          return;
+        }
+        feedEmpty.textContent = "Press play to replay the session.";
+
+        const playBtn = $("play");
+        const progress = $("progress");
+        const clock = $("clock");
+        const first = events[0].ts;
+        const last = events[events.length - 1].ts;
+        let meter, i, timer = null, playing = false, virtualNow;
+
+        const setClock = () => {
+          clock.textContent = `${clockTime(virtualNow)} · ${i}/${events.length}`;
+          progress.style.width = `${last > first ? ((virtualNow - first) / (last - first)) * 100 : 100}%`;
+        };
+
+        const reset = () => {
+          meter = createMeter();
+          i = 0;
+          virtualNow = first;
+          clearFeed();
+          feedEmpty.textContent = "Press play to replay the session.";
+          renderMeter($("meter"), meter.snapshot(virtualNow));
+          setClock();
+        };
+
+        const step = () => {
+          const e = events[i++];
+          virtualNow = e.ts;
+          meter.add(e, e.ts);
+          appendToFeed(e);
+          renderMeter($("meter"), meter.snapshot(virtualNow));
+          setClock();
+          if (i >= events.length) {
+            playing = false;
+            playBtn.textContent = "↺ Replay";
+            return;
+          }
+          const gap = Math.min(Math.max(events[i].ts - e.ts, 0), MAX_GAP_MS);
+          timer = setTimeout(step, gap);
+        };
+
+        const play = () => {
+          if (i >= events.length) reset();
+          playing = true;
+          playBtn.textContent = "❚❚ Pause";
+          const gap = i === 0 ? 0 : Math.min(Math.max(events[i].ts - virtualNow, 0), MAX_GAP_MS);
+          timer = setTimeout(step, gap);
+        };
+
+        const pause = () => {
+          playing = false;
+          clearTimeout(timer); timer = null;
+          playBtn.textContent = "▶ Play";
+        };
+
+        playBtn.disabled = false;
+        playBtn.onclick = () => (playing ? pause() : play());
+        reset();
+      }
+
+      // ---- boot ------------------------------------------------------------------
+
+      async function main() {
+        if (!id) {
+          $("head").innerHTML = `<h2>No session id</h2><p><a href="/">Back to sessions</a></p>`;
+          return;
+        }
+        try {
+          session = await api.session(id);
+        } catch (err) {
+          $("head").innerHTML = err.status === 404
+            ? `<h2>Session not found</h2><p><a href="/">Back to sessions</a></p>`
+            : `<h2>Error loading session</h2><p class="muted">${esc(err.message)}</p>`;
+          return;
+        }
+        renderHead();
+        if (session.status === "live") await startLive();
+        else await startReplay();
+      }
+      main();
+    </script>
+  </body>
+</html>

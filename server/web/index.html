@@ -2,10 +2,137 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Webfuse Activity Analyzer</title>
+    <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <h1>Webfuse Activity Analyzer</h1>
-    <p>Server is running. Dashboard coming soon.</p>
+    <header>
+      <h1><a href="/">Webfuse Activity Analyzer</a></h1>
+      <span class="muted">sessions</span>
+      <span class="spacer"></span>
+      <span class="conn" id="conn" data-state="connecting">connecting</span>
+    </header>
+    <main>
+      <table>
+        <thead>
+          <tr>
+            <th>Session</th>
+            <th>Space</th>
+            <th>Status</th>
+            <th>Started</th>
+            <th class="num">Duration</th>
+            <th class="num">Participants</th>
+            <th class="num">Key events</th>
+            <th>Last key event</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <p class="empty" id="empty" hidden>No sessions yet. Start a Webfuse session with the extension installed.</p>
+    </main>
+
+    <script type="module">
+      import {
+        api, subscribe, badge, statusPill, esc, shortId, duration, dateTime,
+        relativeTime, formatEventLabel, bindConnState,
+      } from "/app.js";
+
+      const tbody = document.getElementById("rows");
+      const empty = document.getElementById("empty");
+
+      // One entry per session: the last session payload, a key-event count,
+      // the latest key event, and the <tr> it renders into.
+      const rows = new Map();
+
+      function entryFor(id) {
+        let e = rows.get(id);
+        if (!e) {
+          e = { session: null, keyCount: 0, lastKey: null, tr: document.createElement("tr") };
+          e.tr.dataset.id = id;
+          rows.set(id, e);
+        }
+        return e;
+      }
+
+      function render(e) {
+        const s = e.session;
+        if (!s) return;
+        const now = Date.now();
+        e.tr.dataset.status = s.status;
+        e.tr.innerHTML = `
+          <td class="mono"><a href="/session.html?id=${encodeURIComponent(s.session_id)}" title="${esc(s.session_id)}">${esc(shortId(s.session_id))}</a></td>
+          <td class="mono">${esc(s.space_id)}</td>
+          <td>${statusPill(s.status)}</td>
+          <td title="${esc(dateTime(s.started_at))}">${esc(relativeTime(Date.parse(s.started_at), now))} ago</td>
+          <td class="num mono">${esc(duration(s.started_at, s.ended_at ?? now))}</td>
+          <td class="num">${s.participant_count}</td>
+          <td class="num">${e.keyCount}</td>
+          <td class="key-cell">${
+            e.lastKey
+              ? `${badge(e.lastKey.type)}<span class="label mono">${esc(formatEventLabel(e.lastKey))}</span>
+                 <span class="muted"> · ${esc(relativeTime(e.lastKey.ts, now))}</span>`
+              : `<span class="muted">—</span>`
+          }</td>`;
+      }
+
+      // Order: live first, then newest started first. Same as the API.
+      function place() {
+        const sorted = [...rows.values()]
+          .filter((e) => e.session)
+          .sort((a, b) => {
+            if (a.session.status !== b.session.status) return a.session.status === "live" ? -1 : 1;
+            return Date.parse(b.session.started_at) - Date.parse(a.session.started_at);
+          });
+        sorted.forEach((e, i) => {
+          if (tbody.children[i] !== e.tr) tbody.insertBefore(e.tr, tbody.children[i] ?? null);
+        });
+        empty.hidden = sorted.length > 0;
+      }
+
+      function upsertSession(s) {
+        const e = entryFor(s.session_id);
+        const wasLive = e.session?.status;
+        e.session = s;
+        render(e);
+        if (wasLive !== s.status) place();
+      }
+
+      function onActivity(a) {
+        // The overview stream only carries key events, but guard anyway.
+        const e = entryFor(a.session_id);
+        e.keyCount++;
+        e.lastKey = a;
+        if (e.session) {
+          render(e);
+          e.tr.classList.remove("flash");
+          void e.tr.offsetWidth; // restart the animation
+          e.tr.classList.add("flash");
+        }
+      }
+
+      async function loadList() {
+        try {
+          const list = await api.sessions();
+          for (const s of list) upsertSession(s);
+          place();
+        } catch (err) {
+          console.error("list sessions", err);
+        }
+      }
+
+      // Boot: read the list, then subscribe. On reconnect re-read the list
+      // in case lifecycle changes were missed while the stream was down.
+      await loadList();
+      subscribe("/stream", {
+        onSession: upsertSession,
+        onActivity,
+        onReconnect: loadList,
+        onState: bindConnState(document.getElementById("conn")),
+      });
+
+      // Durations and relative times tick once a second.
+      setInterval(() => { for (const e of rows.values()) render(e); }, 1000);
+    </script>
   </body>
 </html>
