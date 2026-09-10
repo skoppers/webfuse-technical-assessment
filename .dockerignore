@@ -1,0 +1,8 @@
+.git
+docs
+issues
+extension/node_modules
+extension/dist
+**/.env*
+server/bin
+.DS_Store

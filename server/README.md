@@ -14,6 +14,18 @@ curl localhost:8080/healthz   # {"ok":true}
 
 `go build ./...`, `go vet ./...`, `go test ./...` must stay green.
 
+Everyday targets (`make <target>`):
+
+| Target | Does |
+|---|---|
+| `run` | Loads `.env` when present, then `go run ./cmd/server`. |
+| `lint` | `go vet ./...`, plus `staticcheck ./...` when it is installed. |
+| `test` | `go test ./...` (no database needed). |
+| `test-db` | Integration tests against `TEST_DATABASE_URL` (see Database). |
+| `sqlc` | Regenerate `internal/store/gen/`. |
+| `docker-build` | Build the production image `saa-server` (override with `IMAGE=`). |
+| `docker-run` | Run that image with `.env` on `localhost:8080`. |
+
 ## Environment
 
 | Var | Default | Purpose |
@@ -54,6 +66,34 @@ make test-db
 
 Regenerate queries after editing `internal/store/queries.sql` or the migrations: `make sqlc`
 (runs a pinned sqlc via `go run`; nothing to install).
+
+## Deploy
+
+Build the image from the repo root (the Dockerfile's context is the whole repo so it can
+pick up the dashboard sources):
+
+```sh
+docker build -f server/Dockerfile -t saa-server .
+docker run --rm --env-file server/.env -p 8080:8080 saa-server
+```
+
+Or from `server/`: `make docker-build` and `make docker-run`.
+
+Configuration is environment only. Required: `DATABASE_URL`, `WEBHOOK_SIGNING_KEY`.
+Optional: `PORT`, `PUBLIC_URL`, `CORS_ORIGIN` and the reaper vars, all described in
+[Environment](#environment).
+
+The image:
+
+- is `gcr.io/distroless/static-debian12:nonroot` plus one static Go binary, no shell,
+  runs as a non-root user;
+- listens on a single port, `8080` by default (`PORT` to change it);
+- has the dashboard assets and the migrations embedded, and applies the migrations on
+  every start, so the database only needs to exist and be reachable;
+- answers `GET /healthz` with `{"ok":true}` for the host's health check.
+
+Any Docker host that gives the container a public HTTPS URL works (Render is one option);
+set `PUBLIC_URL` to that URL and point the Space webhook and the extension at it.
 
 ## Layout
 
