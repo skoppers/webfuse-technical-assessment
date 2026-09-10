@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/skoppers/webfuse-activity-analyzer/server/internal/store"
 )
 
 // streamServer serves the SSE handler and reports, via done, when each
@@ -119,9 +117,9 @@ func TestSSEHeadersFrameAndCancel(t *testing.T) {
 	}
 
 	started := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	s.hub.Publish(SessionMessage(store.Session{
-		ID: "s1", SpaceID: "sp", Status: store.StatusLive, StartedAt: started, ParticipantCount: 2,
-	}))
+	s.hub.Publish(Message{Event: EventSession, SessionID: "s1", Data: SessionPayload{
+		SessionID: "s1", SpaceID: "sp", Status: "live", StartedAt: started, ParticipantCount: 2,
+	}})
 
 	sc := bufio.NewScanner(resp.Body)
 	want := "id: 1\nevent: session\ndata: " +
@@ -144,10 +142,12 @@ func TestSSEOverviewFiltersActivity(t *testing.T) {
 	sc := bufio.NewScanner(resp.Body)
 
 	ts := time.Date(2026, 1, 2, 3, 4, 5, 456000000, time.UTC)
-	ev := store.Event{SessionID: "s1", Seq: 1, Type: "click", TS: ts, Data: json.RawMessage(`{"x":1}`)}
-	s.hub.Publish(ActivityMessage(ev, false))
-	ev.Seq, ev.Type, ev.Data = 2, "form_submit", json.RawMessage(`{"fieldCount":3}`)
-	s.hub.Publish(ActivityMessage(ev, true))
+	s.hub.Publish(Message{Event: EventActivity, SessionID: "s1", Key: false, Data: ActivityPayload{
+		SessionID: "s1", Type: "click", Seq: 1, TS: ts.UnixMilli(), Data: json.RawMessage(`{"x":1}`),
+	}})
+	s.hub.Publish(Message{Event: EventActivity, SessionID: "s1", Key: true, Data: ActivityPayload{
+		SessionID: "s1", Type: "form_submit", Seq: 2, TS: ts.UnixMilli(), Data: json.RawMessage(`{"fieldCount":3}`),
+	}})
 
 	want := "id: 2\nevent: activity\ndata: " +
 		`{"session_id":"s1","type":"form_submit","seq":2,"ts":1767323045456,"data":{"fieldCount":3}}` +
@@ -162,8 +162,11 @@ func TestSSEPerSessionRoute(t *testing.T) {
 	resp, _ := s.open(t, "/s2", http.Header{"Last-Event-ID": {"7"}})
 	sc := bufio.NewScanner(resp.Body)
 
-	s.hub.Publish(ActivityMessage(store.Event{SessionID: "s1", Seq: 1, Type: "click", TS: time.UnixMilli(1)}, false))
-	s.hub.Publish(ActivityMessage(store.Event{SessionID: "s2", Seq: 1, Type: "click", TS: time.UnixMilli(1)}, false))
+	for _, id := range []string{"s1", "s2"} {
+		s.hub.Publish(Message{Event: EventActivity, SessionID: id, Data: ActivityPayload{
+			SessionID: id, Type: "click", Seq: 1, TS: 1, Data: json.RawMessage(`{}`),
+		}})
+	}
 
 	want := "id: 2\nevent: activity\ndata: " +
 		`{"session_id":"s2","type":"click","seq":1,"ts":1,"data":{}}` +

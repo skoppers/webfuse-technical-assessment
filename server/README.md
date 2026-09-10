@@ -40,12 +40,12 @@ The server needs Postgres 14+ and applies its embedded migrations on every start
   export DATABASE_URL='postgres://postgres@localhost:5432/saa?sslmode=disable'
   ```
 
-Store integration tests run only when `TEST_DATABASE_URL` is set. They migrate and
-truncate the tables, so use a throwaway database:
+Store and session integration tests run only when `TEST_DATABASE_URL` is set. They
+migrate and truncate the tables, so use a throwaway database:
 
 ```sh
 createdb saa_test
-TEST_DATABASE_URL='postgres://localhost:5432/saa_test?sslmode=disable' go test ./internal/store/...
+TEST_DATABASE_URL='postgres://localhost:5432/saa_test?sslmode=disable' go test ./internal/store/... ./internal/session/...
 ```
 
 Regenerate queries after editing `internal/store/queries.sql` or the migrations: `make sqlc`
@@ -60,7 +60,9 @@ Regenerate queries after editing `internal/store/queries.sql` or the migrations:
 | `internal/httpx/` | JSON read/write, error responses, request-logging middleware. |
 | `internal/store/` | Postgres handle (`Open`), embedded goose migrations (`Migrate`), schema in `migrations/`, queries in `queries.sql`, `Store` wrapper in `store.go`. |
 | `internal/store/gen/` | sqlc output for `queries.sql` (generated, do not edit). |
-| `internal/stream/` | In-process pub/sub `Hub`, SSE wire payloads (`SessionMessage`, `ActivityMessage`), and the `/stream` handlers. |
+| `internal/event/` | The session event contract: the seven event types, `Valid`, `IsKey`. Mirrors the extension's `types.ts`. |
+| `internal/session/` | The session lifecycle: `Lifecycle` applies webhooks (`Started`, `Ended`, `ParticipantsChanged`), ingest batches (`RecordEvents`) and the reaper (`ReapIdle`), persisting via `store` and publishing to the `stream` hub only when a row changed. Ingest, webhook, reaper and API handlers call this, never `store` or `Hub` directly. |
+| `internal/stream/` | In-process pub/sub `Hub`, SSE wire payload types (`SessionPayload`, `ActivityPayload`), and the `/stream` handlers. |
 | `web/` | Dashboard assets embedded via `embed.FS`, served at `/`. |
 
 Reserved route prefixes for later packages: `/api`, `/ingest`, `/webhooks`.
