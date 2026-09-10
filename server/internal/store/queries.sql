@@ -57,9 +57,34 @@ WHERE session_id = @session_id
 RETURNING *;
 
 -- name: ListSessions :many
--- Live sessions first, newest first.
-SELECT * FROM sessions
-ORDER BY (status = 'live') DESC, started_at DESC, session_id
+-- Live sessions first, newest first, each with how many of its stored
+-- events are key events and the latest of them by ts then seq. The last_key_*
+-- columns are zero values (id 0) when the session has no key event; sqlc
+-- cannot see the LEFT JOIN LATERAL as nullable, so they are coalesced.
+-- key_types is the comma-joined key event type list, passed in so the event
+-- contract stays defined only in Go.
+SELECT s.*,
+       k.key_event_count,
+       COALESCE(lk.id, 0)                  AS last_key_id,
+       COALESCE(lk.seq, 0)                 AS last_key_seq,
+       COALESCE(lk.type, '')               AS last_key_type,
+       COALESCE(lk.ts, s.started_at)       AS last_key_ts,
+       COALESCE(lk.received_at, s.started_at) AS last_key_received_at,
+       COALESCE(lk.data, '{}'::jsonb)      AS last_key_data
+FROM sessions s
+CROSS JOIN LATERAL (
+  SELECT count(*)::int AS key_event_count
+  FROM events e
+  WHERE e.session_id = s.session_id AND e.type = ANY(string_to_array(@key_types::text, ','))
+) k
+LEFT JOIN LATERAL (
+  SELECT e.id, e.seq, e.type, e.ts, e.received_at, e.data
+  FROM events e
+  WHERE e.session_id = s.session_id AND e.type = ANY(string_to_array(@key_types::text, ','))
+  ORDER BY e.ts DESC, e.seq DESC
+  LIMIT 1
+) lk ON true
+ORDER BY (s.status = 'live') DESC, s.started_at DESC, s.session_id
 LIMIT @row_limit;
 
 -- name: ListIdleLiveSessions :many

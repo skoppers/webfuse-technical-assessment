@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/jsonx"
@@ -35,6 +36,15 @@ type Session struct {
 	ParticipantCount int
 	Metadata         json.RawMessage
 	LastWebhookSeq   int64
+}
+
+// SessionSummary is a session row plus what the overview shows about its key
+// events: how many are stored and the latest by ts then seq. LastKeyEvent is
+// nil when the session has none.
+type SessionSummary struct {
+	Session
+	KeyEventCount int
+	LastKeyEvent  *Event
 }
 
 // Event is a row of the events table. TS is the event's own timestamp as
@@ -150,15 +160,19 @@ func (s *Store) GetSession(ctx context.Context, id string) (Session, error) {
 }
 
 // ListSessions returns up to limit sessions, live ones first and newest first
-// within each group.
-func (s *Store) ListSessions(ctx context.Context, limit int) ([]Session, error) {
-	rows, err := s.q.ListSessions(ctx, int32(limit))
+// within each group, each with its key event count and latest key event.
+// keyTypes is the event types that count as key events.
+func (s *Store) ListSessions(ctx context.Context, limit int, keyTypes []string) ([]SessionSummary, error) {
+	rows, err := s.q.ListSessions(ctx, gen.ListSessionsParams{
+		KeyTypes: strings.Join(keyTypes, ","),
+		RowLimit: int32(limit),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list sessions: %w", err)
 	}
-	out := make([]Session, 0, len(rows))
+	out := make([]SessionSummary, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, sessionFromRow(r))
+		out = append(out, summaryFromRow(r))
 	}
 	return out, nil
 }
@@ -238,6 +252,38 @@ func sessionFromRow(r gen.Session) Session {
 		s.EndedAt = &t
 	}
 	return s
+}
+
+// summaryFromRow maps a ListSessions row. The query coalesces the last key
+// event columns to zero values, id 0 marking a session with no key event.
+func summaryFromRow(r gen.ListSessionsRow) SessionSummary {
+	out := SessionSummary{
+		Session: sessionFromRow(gen.Session{
+			SessionID:        r.SessionID,
+			SpaceID:          r.SpaceID,
+			Status:           r.Status,
+			StartedAt:        r.StartedAt,
+			EndedAt:          r.EndedAt,
+			Source:           r.Source,
+			ParticipantCount: r.ParticipantCount,
+			Metadata:         r.Metadata,
+			LastWebhookSeq:   r.LastWebhookSeq,
+			CreatedAt:        r.CreatedAt,
+		}),
+		KeyEventCount: int(r.KeyEventCount),
+	}
+	if r.LastKeyID != 0 {
+		out.LastKeyEvent = &Event{
+			ID:         r.LastKeyID,
+			SessionID:  r.SessionID,
+			Seq:        int(r.LastKeySeq),
+			Type:       r.LastKeyType,
+			TS:         r.LastKeyTs.UTC(),
+			ReceivedAt: r.LastKeyReceivedAt.UTC(),
+			Data:       r.LastKeyData,
+		}
+	}
+	return out
 }
 
 func eventFromRow(r gen.Event) Event {

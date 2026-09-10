@@ -28,3 +28,7 @@ func Valid(t Type) bool { return all[t] }
 // IsKey reports whether t is a key event: one flushed immediately by the
 // extension, carried on the overview stream and highlighted in every UI.
 func IsKey(t Type) bool { return t == FormSubmit || t == SensitiveURL }
+
+// KeyTypes returns the key event types as strings, for callers that filter
+// stored events by type. It is a fresh slice each call.
+func KeyTypes() []string { return []string{string(FormSubmit), string(SensitiveURL)} }

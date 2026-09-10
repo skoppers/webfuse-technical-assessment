@@ -284,21 +284,71 @@ func (q *Queries) ListIdleLiveSessions(ctx context.Context, idleBefore time.Time
 }
 
 const listSessions = `-- name: ListSessions :many
-SELECT session_id, space_id, status, started_at, ended_at, source, participant_count, metadata, last_webhook_seq, created_at FROM sessions
-ORDER BY (status = 'live') DESC, started_at DESC, session_id
-LIMIT $1
+SELECT s.session_id, s.space_id, s.status, s.started_at, s.ended_at, s.source, s.participant_count, s.metadata, s.last_webhook_seq, s.created_at,
+       k.key_event_count,
+       COALESCE(lk.id, 0)                  AS last_key_id,
+       COALESCE(lk.seq, 0)                 AS last_key_seq,
+       COALESCE(lk.type, '')               AS last_key_type,
+       COALESCE(lk.ts, s.started_at)       AS last_key_ts,
+       COALESCE(lk.received_at, s.started_at) AS last_key_received_at,
+       COALESCE(lk.data, '{}'::jsonb)      AS last_key_data
+FROM sessions s
+CROSS JOIN LATERAL (
+  SELECT count(*)::int AS key_event_count
+  FROM events e
+  WHERE e.session_id = s.session_id AND e.type = ANY(string_to_array($1::text, ','))
+) k
+LEFT JOIN LATERAL (
+  SELECT e.id, e.seq, e.type, e.ts, e.received_at, e.data
+  FROM events e
+  WHERE e.session_id = s.session_id AND e.type = ANY(string_to_array($1::text, ','))
+  ORDER BY e.ts DESC, e.seq DESC
+  LIMIT 1
+) lk ON true
+ORDER BY (s.status = 'live') DESC, s.started_at DESC, s.session_id
+LIMIT $2
 `
 
-// Live sessions first, newest first.
-func (q *Queries) ListSessions(ctx context.Context, rowLimit int32) ([]Session, error) {
-	rows, err := q.db.QueryContext(ctx, listSessions, rowLimit)
+type ListSessionsParams struct {
+	KeyTypes string
+	RowLimit int32
+}
+
+type ListSessionsRow struct {
+	SessionID         string
+	SpaceID           string
+	Status            string
+	StartedAt         time.Time
+	EndedAt           sql.NullTime
+	Source            string
+	ParticipantCount  int32
+	Metadata          json.RawMessage
+	LastWebhookSeq    int64
+	CreatedAt         time.Time
+	KeyEventCount     int32
+	LastKeyID         int64
+	LastKeySeq        int32
+	LastKeyType       string
+	LastKeyTs         time.Time
+	LastKeyReceivedAt time.Time
+	LastKeyData       json.RawMessage
+}
+
+// Live sessions first, newest first, each with how many of its stored
+// events are key events and the latest of them by ts then seq. The last_key_*
+// columns are zero values (id 0) when the session has no key event; sqlc
+// cannot see the LEFT JOIN LATERAL as nullable, so they are coalesced.
+// key_types is the comma-joined key event type list, passed in so the event
+// contract stays defined only in Go.
+func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]ListSessionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSessions, arg.KeyTypes, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Session
+	var items []ListSessionsRow
 	for rows.Next() {
-		var i Session
+		var i ListSessionsRow
 		if err := rows.Scan(
 			&i.SessionID,
 			&i.SpaceID,
@@ -310,6 +360,13 @@ func (q *Queries) ListSessions(ctx context.Context, rowLimit int32) ([]Session, 
 			&i.Metadata,
 			&i.LastWebhookSeq,
 			&i.CreatedAt,
+			&i.KeyEventCount,
+			&i.LastKeyID,
+			&i.LastKeySeq,
+			&i.LastKeyType,
+			&i.LastKeyTs,
+			&i.LastKeyReceivedAt,
+			&i.LastKeyData,
 		); err != nil {
 			return nil, err
 		}

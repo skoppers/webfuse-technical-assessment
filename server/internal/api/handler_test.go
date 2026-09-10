@@ -31,7 +31,7 @@ var (
 )
 
 // wantSeq is the event order the store returns for s-live: by ts, then seq.
-var wantSeq = []int{2, 1, 4, 3}
+var wantSeq = []int{2, 1, 4, 3, 6, 5}
 
 // fixture is the read API over a Lifecycle on a clean, seeded test database.
 type fixture struct {
@@ -86,6 +86,9 @@ func seed(t *testing.T, lc *session.Lifecycle) {
 		{Type: "scroll", Seq: 1, TS: base.Add(time.Second)},
 		{Type: "click", Seq: 4, TS: base.Add(time.Second), Data: json.RawMessage(`{"tag":"a"}`)},
 		{Type: "navigation", Seq: 2, TS: base, Data: nil},
+		// Two key events; seq 5 is the latest by ts.
+		{Type: "sensitive_url", Seq: 5, TS: base.Add(4 * time.Second), Data: json.RawMessage(`{"category":"payment"}`)},
+		{Type: "form_submit", Seq: 6, TS: base.Add(3 * time.Second)},
 	}
 	res, err := lc.RecordEvents(ctx, liveID, "sp", base, events)
 	if err != nil || res.Inserted != len(events) {
@@ -147,6 +150,17 @@ func TestListSessions(t *testing.T) {
 	if string(live.Metadata) != `{"plan":"pro"}` {
 		t.Errorf("live metadata = %s", live.Metadata)
 	}
+	if live.KeyEventCount != 2 {
+		t.Errorf("live key_event_count = %d, want 2", live.KeyEventCount)
+	}
+	if lk := live.LastKeyEvent; lk == nil || lk.Seq != 5 || lk.Type != "sensitive_url" ||
+		lk.TS != base.Add(4*time.Second).UnixMilli() || lk.ReceivedAt.IsZero() ||
+		string(lk.Data) != `{"category":"payment"}` {
+		t.Errorf("live last_key_event = %+v", lk)
+	}
+	if ended.KeyEventCount != 0 || ended.LastKeyEvent != nil {
+		t.Errorf("ended key events = %d / %+v, want 0 / nil", ended.KeyEventCount, ended.LastKeyEvent)
+	}
 
 	if ended.SessionID != endedID || ended.Status != session.StatusEnded {
 		t.Errorf("second = %+v, want ended %s", ended, endedID)
@@ -160,7 +174,8 @@ func TestListSessions(t *testing.T) {
 
 	// Raw shape: ended_at null for the live session, metadata an object.
 	body := rec.Body.String()
-	for _, want := range []string{`"ended_at":null`, `"metadata":{}`, `"source":"webhook"`} {
+	for _, want := range []string{`"ended_at":null`, `"metadata":{}`, `"source":"webhook"`,
+		`"key_event_count":0`, `"last_key_event":null`, `"last_key_event":{"seq":5,`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body %s lacks %s", body, want)
 		}

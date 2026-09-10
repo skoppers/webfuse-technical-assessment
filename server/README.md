@@ -25,6 +25,7 @@ Everyday targets (`make <target>`):
 | `sqlc` | Regenerate `internal/store/gen/`. |
 | `docker-build` | Build the production image `saa-server` (override with `IMAGE=`). |
 | `docker-run` | Run that image with `.env` on `localhost:8080`. |
+| `smoke` | End-to-end check against a running server: signed webhooks, ingest, SSE, read API. |
 
 ## Environment
 
@@ -112,14 +113,14 @@ set `PUBLIC_URL` to that URL and point the Space webhook and the extension at it
 | `internal/ingest/` | `POST /ingest`: the extension's batch wire shape (`Batch`, `Event`), `Validate` against the wire contract, and the handler that hands batches to `Lifecycle.RecordEvents`. |
 | `internal/webhook/` | The security boundary for Space lifecycle webhooks: `ReadBody` (gunzip, size cap), `Verify` (HMAC-SHA256, every header encoding and both raw/plain bytes tried, match logged), `Parse` into `Envelope` plus `SessionData`/`ParticipantData`, the `RequireSignature` middleware, and the `POST /webhooks/webfuse` handler that routes each verified envelope by category to `Lifecycle.Started`/`Ended`/`ParticipantsChanged`. Owns the webhook wire shapes; stores and publishes nothing itself. |
 | `internal/api/` | The dashboard's read API under `/api`: session list, session detail and the full ordered event log for replay. Owns the response types (`Session`, `Event`) and maps them from `session` rows; calls `Lifecycle.List`/`Get`/`Events` only. |
-| `web/` | Dashboard assets embedded via `embed.FS`, served at `/`. |
+| `web/` | Static dashboard embedded via `embed.FS`, served at `/`: `index.html` (live session list), `session.html?id=` (live feed or replay), `app.js`, `style.css`. No build step. |
 
 ## Endpoints
 
 | Route | Purpose |
 |---|---|
 | `GET /healthz` | Liveness check, `{"ok":true}`. |
-| `GET /api/sessions?limit=N` | Session list for the overview: `{"sessions": [...]}`, live first then newest first. `limit` defaults to 100, is clamped to 500, and must be a positive integer (`400 {"error": ...}` otherwise). |
+| `GET /api/sessions?limit=N` | Session list for the overview: `{"sessions": [...]}`, live first then newest first, each session plus `key_event_count` and `last_key_event` (an event, or `null` when it has none). `limit` defaults to 100, is clamped to 500, and must be a positive integer (`400 {"error": ...}` otherwise). |
 | `GET /api/sessions/{id}` | One session, `404 {"error":"not found"}` when unknown. |
 | `GET /api/sessions/{id}/events` | The session's full event log for replay: `{"session_id", "events": [...]}` ordered by `ts` then `seq`; `404` when the session is unknown. |
 | `POST /ingest` | Extension event batch; `202 {"accepted": n, "duplicates": m}`, `400 {"error": ...}` on a bad batch. Answers CORS preflight for `CORS_ORIGIN`. |

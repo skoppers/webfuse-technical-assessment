@@ -21,8 +21,9 @@ import (
 // Session and Event are the persisted rows as callers of this package see
 // them. They alias the store types so callers never import store.
 type (
-	Session = store.Session
-	Event   = store.Event
+	Session        = store.Session
+	SessionSummary = store.SessionSummary
+	Event          = store.Event
 )
 
 // Session status values.
@@ -220,9 +221,10 @@ func (l *Lifecycle) Get(ctx context.Context, id string) (Session, error) {
 	return l.st.GetSession(ctx, id)
 }
 
-// List returns up to limit sessions, live first, newest first within each.
-func (l *Lifecycle) List(ctx context.Context, limit int) ([]Session, error) {
-	return l.st.ListSessions(ctx, limit)
+// List returns up to limit sessions, live first, newest first within each,
+// each with its key event count and latest key event.
+func (l *Lifecycle) List(ctx context.Context, limit int) ([]SessionSummary, error) {
+	return l.st.ListSessions(ctx, limit, event.KeyTypes())
 }
 
 // Events returns every stored event of a session ordered by ts, then seq.

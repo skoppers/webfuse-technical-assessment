@@ -26,6 +26,14 @@ type Session struct {
 	Metadata         json.RawMessage `json:"metadata"`
 }
 
+// SessionSummary is one session as the list returns it: a Session plus how
+// many key events it has stored and the latest of them, null when none.
+type SessionSummary struct {
+	Session
+	KeyEventCount int    `json:"key_event_count"`
+	LastKeyEvent  *Event `json:"last_key_event"`
+}
+
 // Event is one stored session event. TS is the client's timestamp in epoch
 // milliseconds, the unit ingest accepts, so replay works in the same unit;
 // ReceivedAt is when the server stored it, RFC 3339.
@@ -49,6 +57,16 @@ func toSession(s session.Session) Session {
 		Source:           s.Source,
 		Metadata:         jsonx.OrEmptyObject(s.Metadata),
 	}
+}
+
+// toSummary maps a session summary to its response shape.
+func toSummary(s session.SessionSummary) SessionSummary {
+	out := SessionSummary{Session: toSession(s.Session), KeyEventCount: s.KeyEventCount}
+	if s.LastKeyEvent != nil {
+		e := toEvent(*s.LastKeyEvent)
+		out.LastKeyEvent = &e
+	}
+	return out
 }
 
 // toEvent maps an event row to its response shape.

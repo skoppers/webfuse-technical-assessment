@@ -21,7 +21,7 @@ const (
 
 // listResponse is the body of GET /sessions.
 type listResponse struct {
-	Sessions []Session `json:"sessions"`
+	Sessions []SessionSummary `json:"sessions"`
 }
 
 // eventsResponse is the body of GET /sessions/{id}/events.
@@ -32,7 +32,7 @@ type eventsResponse struct {
 
 // Handler returns the read routes, to be mounted at /api:
 //
-//	GET /sessions?limit=N      200 {"sessions": [Session...]}, live first, newest first
+//	GET /sessions?limit=N      200 {"sessions": [SessionSummary...]}, live first, newest first
 //	GET /sessions/{id}         200 Session
 //	GET /sessions/{id}/events  200 {"session_id": id, "events": [Event...]}, by ts then seq
 //
@@ -66,9 +66,9 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	out := make([]Session, 0, len(rows))
+	out := make([]SessionSummary, 0, len(rows))
 	for _, s := range rows {
-		out = append(out, toSession(s))
+		out = append(out, toSummary(s))
 	}
 	httpx.WriteJSON(w, http.StatusOK, listResponse{Sessions: out})
 }

@@ -94,6 +94,15 @@
         const e = entryFor(s.session_id);
         const wasLive = e.session?.status;
         e.session = s;
+        // The list API carries the stored key event count and latest key
+        // event; the stream's session payload does not, so only take them
+        // when present and never move backwards past what the stream added.
+        if (s.key_event_count !== undefined) {
+          e.keyCount = Math.max(e.keyCount, s.key_event_count);
+          if (s.last_key_event && (!e.lastKey || s.last_key_event.ts >= e.lastKey.ts)) {
+            e.lastKey = { ...s.last_key_event, session_id: s.session_id };
+          }
+        }
         render(e);
         if (wasLive !== s.status) place();
       }

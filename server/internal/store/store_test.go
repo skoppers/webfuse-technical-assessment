@@ -238,8 +238,17 @@ func TestListSessions(t *testing.T) {
 	mustInsertEvent(t, st, "live-old", 1)
 	mustInsertEvent(t, st, "live-old", 2)
 	mustInsertEvent(t, st, "ended-old", 1)
+	// live-old gets three key events; the latest is by ts then seq, so seq 3
+	// (a later ts than seq 4) wins even though seq 4 was stored last.
+	keyTS := base.Add(90 * time.Minute)
+	mustInsertTypedEvent(t, st, "live-old", 3, "form_submit", keyTS.Add(time.Second), json.RawMessage(`{"action":"/login"}`))
+	mustInsertTypedEvent(t, st, "live-old", 4, "sensitive_url", keyTS, nil)
+	mustInsertTypedEvent(t, st, "live-old", 5, "form_submit", keyTS.Add(-time.Second), nil)
+	// A key type absent from keyTypes is not counted.
+	mustInsertTypedEvent(t, st, "ended-old", 2, "sensitive_url", base.Add(time.Minute), nil)
+	keyTypes := []string{"form_submit"}
 
-	got, err := st.ListSessions(ctx, 10)
+	got, err := st.ListSessions(ctx, 10, keyTypes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,8 +261,37 @@ func TestListSessions(t *testing.T) {
 			t.Errorf("position %d: %s, want %s", i, s.ID, wantOrder[i])
 		}
 	}
+	for _, s := range got {
+		switch s.ID {
+		case "live-old":
+			if s.KeyEventCount != 2 {
+				t.Errorf("live-old key count = %d, want 2", s.KeyEventCount)
+			}
+			lk := s.LastKeyEvent
+			if lk == nil {
+				t.Fatal("live-old last key event = nil")
+			}
+			if lk.Seq != 3 || lk.Type != "form_submit" || !lk.TS.Equal(keyTS.Add(time.Second)) ||
+				lk.SessionID != "live-old" || lk.ID == 0 || lk.ReceivedAt.IsZero() ||
+				string(lk.Data) != `{"action": "/login"}` {
+				t.Errorf("live-old last key event = %+v", *lk)
+			}
+		default:
+			if s.KeyEventCount != 0 || s.LastKeyEvent != nil {
+				t.Errorf("%s: key count = %d, last = %+v, want none", s.ID, s.KeyEventCount, s.LastKeyEvent)
+			}
+		}
+	}
 
-	limited, err := st.ListSessions(ctx, 2)
+	both, err := st.ListSessions(ctx, 10, []string{"form_submit", "sensitive_url"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if both[1].KeyEventCount != 3 || both[3].KeyEventCount != 1 || both[3].LastKeyEvent == nil || both[3].LastKeyEvent.Seq != 2 {
+		t.Errorf("both key types: live-old %+v, ended-old %+v", both[1], both[3])
+	}
+
+	limited, err := st.ListSessions(ctx, 2, keyTypes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,6 +438,13 @@ func mustCreate(t *testing.T, st *Store, id string, startedAt time.Time) {
 func mustInsertEvent(t *testing.T, st *Store, sessionID string, seq int) {
 	t.Helper()
 	if _, inserted, err := st.InsertEvent(context.Background(), sessionID, seq, "click", time.Now(), nil); err != nil || !inserted {
+		t.Fatalf("insert event %s/%d: inserted=%v err=%v", sessionID, seq, inserted, err)
+	}
+}
+
+func mustInsertTypedEvent(t *testing.T, st *Store, sessionID string, seq int, typ string, ts time.Time, data json.RawMessage) {
+	t.Helper()
+	if _, inserted, err := st.InsertEvent(context.Background(), sessionID, seq, typ, ts, data); err != nil || !inserted {
 		t.Fatalf("insert event %s/%d: inserted=%v err=%v", sessionID, seq, inserted, err)
 	}
 }
