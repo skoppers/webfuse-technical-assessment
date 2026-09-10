@@ -22,6 +22,7 @@ import (
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/session"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/store"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/stream"
+	"github.com/skoppers/webfuse-activity-analyzer/server/internal/webhook"
 	"github.com/skoppers/webfuse-activity-analyzer/server/web"
 )
 
@@ -88,8 +89,8 @@ func run(log *slog.Logger) error {
 	return nil
 }
 
-// newRouter mounts all routes. /api and /webhooks are reserved for the API
-// and webhook handlers; everything else falls through to the embedded web/.
+// newRouter mounts all routes. /api is reserved for the API handlers;
+// everything else falls through to the embedded web/.
 func newRouter(log *slog.Logger, cfg config.Config, lc *session.Lifecycle, hub *stream.Hub) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -103,6 +104,7 @@ func newRouter(log *slog.Logger, cfg config.Config, lc *session.Lifecycle, hub *
 
 	r.Mount("/ingest", ingest.Handler(lc, cfg.CORSOrigin))
 	r.Mount("/stream", stream.Handler(hub))
+	r.Mount("/webhooks", webhook.Handler(lc, cfg.WebhookSigningKey))
 	r.Handle("/*", http.FileServerFS(web.Assets))
 	return r
 }
