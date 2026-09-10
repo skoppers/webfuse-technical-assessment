@@ -48,6 +48,9 @@ createdb saa_test
 TEST_DATABASE_URL='postgres://localhost:5432/saa_test?sslmode=disable' go test ./internal/store/...
 ```
 
+Regenerate queries after editing `internal/store/queries.sql` or the migrations: `make sqlc`
+(runs a pinned sqlc via `go run`; nothing to install).
+
 ## Layout
 
 | Path | Purpose |
@@ -55,7 +58,8 @@ TEST_DATABASE_URL='postgres://localhost:5432/saa_test?sslmode=disable' go test .
 | `cmd/server/main.go` | Wiring only: config → deps → routes → run, graceful shutdown. |
 | `internal/config/` | `Config` + `Load()` from env. |
 | `internal/httpx/` | JSON read/write, error responses, request-logging middleware. |
-| `internal/store/` | Postgres handle (`Open`), embedded goose migrations (`Migrate`), schema in `migrations/`. |
+| `internal/store/` | Postgres handle (`Open`), embedded goose migrations (`Migrate`), schema in `migrations/`, queries in `queries.sql`, `Store` wrapper in `store.go`. |
+| `internal/store/gen/` | sqlc output for `queries.sql` (generated, do not edit). |
 | `web/` | Dashboard assets embedded via `embed.FS`, served at `/`. |
 
 Reserved route prefixes for later packages: `/api`, `/ingest`, `/stream`, `/webhooks`.

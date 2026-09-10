@@ -1,0 +1,20 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "migrations/"
+    queries: "queries.sql"
+    gen:
+      go:
+        package: "gen"
+        out: "gen"
+        sql_package: "database/sql"
+        emit_json_tags: false
+        emit_result_struct_pointers: false
+        overrides:
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          - db_type: "timestamptz"
+            nullable: true
+            go_type: "database/sql.NullTime"
+          - db_type: "jsonb"
+            go_type: "encoding/json.RawMessage"
