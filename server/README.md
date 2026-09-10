@@ -57,6 +57,7 @@ Regenerate queries after editing `internal/store/queries.sql` or the migrations:
 |---|---|
 | `cmd/server/main.go` | Wiring only: config → deps → routes → run, graceful shutdown. |
 | `internal/config/` | `Config` + `Load()` from env. |
+| `internal/jsonx/` | `OrEmptyObject`: substitutes `{}` for absent JSON so jsonb columns, stream payloads and API responses never carry null. |
 | `internal/httpx/` | JSON read/write, error responses, request-logging and no-store cache middleware. |
 | `internal/store/` | Postgres handle (`Open`), embedded goose migrations (`Migrate`), schema in `migrations/`, queries in `queries.sql`, `Store` wrapper in `store.go`. |
 | `internal/store/gen/` | sqlc output for `queries.sql` (generated, do not edit). |

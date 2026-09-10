@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/event"
+	"github.com/skoppers/webfuse-activity-analyzer/server/internal/jsonx"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/store"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/stream"
 )
@@ -249,10 +250,6 @@ func sessionMessage(s Session) stream.Message {
 // Key events are marked so the overview stream carries them too. Empty Data
 // is sent as an empty object.
 func activityMessage(e Event) stream.Message {
-	data := e.Data
-	if len(data) == 0 {
-		data = json.RawMessage(`{}`)
-	}
 	return stream.Message{
 		Event:     stream.EventActivity,
 		SessionID: e.SessionID,
@@ -262,7 +259,7 @@ func activityMessage(e Event) stream.Message {
 			Type:      e.Type,
 			Seq:       e.Seq,
 			TS:        e.TS.UnixMilli(),
-			Data:      data,
+			Data:      jsonx.OrEmptyObject(e.Data),
 		},
 	}
 }

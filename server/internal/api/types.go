@@ -8,12 +8,9 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/skoppers/webfuse-activity-analyzer/server/internal/jsonx"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/session"
 )
-
-// emptyObject stands in for absent metadata or event data so clients always
-// receive a JSON object, never null.
-var emptyObject = json.RawMessage(`{}`)
 
 // Session is one session as the read API returns it. It carries the same
 // fields and names as the stream's session payload plus source and metadata.
@@ -50,7 +47,7 @@ func toSession(s session.Session) Session {
 		EndedAt:          s.EndedAt,
 		ParticipantCount: s.ParticipantCount,
 		Source:           s.Source,
-		Metadata:         orEmptyObject(s.Metadata),
+		Metadata:         jsonx.OrEmptyObject(s.Metadata),
 	}
 }
 
@@ -61,13 +58,6 @@ func toEvent(e session.Event) Event {
 		Type:       e.Type,
 		TS:         e.TS.UnixMilli(),
 		ReceivedAt: e.ReceivedAt,
-		Data:       orEmptyObject(e.Data),
+		Data:       jsonx.OrEmptyObject(e.Data),
 	}
-}
-
-func orEmptyObject(raw json.RawMessage) json.RawMessage {
-	if len(raw) == 0 {
-		return emptyObject
-	}
-	return raw
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/skoppers/webfuse-activity-analyzer/server/internal/jsonx"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/store/gen"
 )
 
@@ -22,10 +23,6 @@ const (
 
 // ErrNotFound is returned when a lookup by id matches no row.
 var ErrNotFound = errors.New("store: not found")
-
-// emptyJSONObject is stored when a caller passes no metadata or event data,
-// keeping the jsonb columns non-null.
-var emptyJSONObject = json.RawMessage(`{}`)
 
 // Session is a row of the sessions table as seen by the rest of the server.
 type Session struct {
@@ -108,7 +105,7 @@ func (s *Store) EnrichSessionFromWebhook(ctx context.Context, p EnrichParams) (S
 		SpaceID:          p.SpaceID,
 		StartedAt:        p.StartedAt,
 		ParticipantCount: int32(p.ParticipantCount),
-		Metadata:         orEmptyObject(p.Metadata),
+		Metadata:         jsonx.OrEmptyObject(p.Metadata),
 		Seq:              p.Seq,
 		SessionID:        p.ID,
 	})
@@ -188,7 +185,7 @@ func (s *Store) InsertEvent(ctx context.Context, sessionID string, seq int, typ 
 		Seq:       int32(seq),
 		Type:      typ,
 		Ts:        ts,
-		Data:      orEmptyObject(data),
+		Data:      jsonx.OrEmptyObject(data),
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
@@ -253,13 +250,4 @@ func eventFromRow(r gen.Event) Event {
 		ReceivedAt: r.ReceivedAt.UTC(),
 		Data:       r.Data,
 	}
-}
-
-// orEmptyObject substitutes "{}" for absent JSON so non-null jsonb columns
-// never receive NULL.
-func orEmptyObject(raw json.RawMessage) json.RawMessage {
-	if len(raw) == 0 {
-		return emptyJSONObject
-	}
-	return raw
 }
