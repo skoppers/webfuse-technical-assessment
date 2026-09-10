@@ -20,6 +20,7 @@ import (
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/config"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/httpx"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/ingest"
+	"github.com/skoppers/webfuse-activity-analyzer/server/internal/reaper"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/session"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/store"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/stream"
@@ -60,6 +61,7 @@ func run(log *slog.Logger) error {
 
 	hub := stream.NewHub()
 	lc := session.New(store.New(db), hub)
+	go reaper.Run(ctx, lc, cfg.ReaperIdle, cfg.ReaperTick)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

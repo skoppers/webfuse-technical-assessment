@@ -26,6 +26,10 @@ curl localhost:8080/healthz   # {"ok":true}
 | `REAPER_TICK_SECONDS` | `30` | Reaper sweep interval. |
 | `CORS_ORIGIN` | `*` | `Access-Control-Allow-Origin` for `/ingest`. |
 
+The reaper ends any live session with no events for `REAPER_IDLE_SECONDS` (a missed `ended`
+webhook, or a session only ever seen through the extension), sweeping once at startup and
+then every `REAPER_TICK_SECONDS`.
+
 ## Database
 
 The server needs Postgres 14+ and applies its embedded migrations on every start
@@ -40,7 +44,7 @@ The server needs Postgres 14+ and applies its embedded migrations on every start
   export DATABASE_URL='postgres://postgres@localhost:5432/saa?sslmode=disable'
   ```
 
-Store, session, ingest, webhook and API integration tests run only when `TEST_DATABASE_URL` is set.
+Store, session, reaper, ingest, webhook and API integration tests run only when `TEST_DATABASE_URL` is set.
 They migrate and truncate the tables, so use a throwaway database:
 
 ```sh
@@ -63,6 +67,7 @@ Regenerate queries after editing `internal/store/queries.sql` or the migrations:
 | `internal/store/gen/` | sqlc output for `queries.sql` (generated, do not edit). |
 | `internal/event/` | The session event contract: the seven event types, `Valid`, `IsKey`. Mirrors the extension's `types.ts`. |
 | `internal/session/` | The session lifecycle: `Lifecycle` applies webhooks (`Started`, `Ended`, `ParticipantsChanged`), ingest batches (`RecordEvents`) and the reaper (`ReapIdle`), persisting via `store` and publishing to the `stream` hub only when a row changed. Ingest, webhook, reaper and API handlers call this, never `store` or `Hub` directly. |
+| `internal/reaper/` | The reaper loop: `Run` sweeps once at startup, then every tick until the context is done, calling `Lifecycle.ReapIdle` and logging each ended session. Owns only the schedule; the idle rule and the ending live in `session`. |
 | `internal/stream/` | In-process pub/sub `Hub`, SSE wire payload types (`SessionPayload`, `ActivityPayload`), and the `/stream` handlers. |
 | `internal/ingest/` | `POST /ingest`: the extension's batch wire shape (`Batch`, `Event`), `Validate` against the wire contract, and the handler that hands batches to `Lifecycle.RecordEvents`. |
 | `internal/webhook/` | The security boundary for Space lifecycle webhooks: `ReadBody` (gunzip, size cap), `Verify` (HMAC-SHA256, every header encoding and both raw/plain bytes tried, match logged), `Parse` into `Envelope` plus `SessionData`/`ParticipantData`, the `RequireSignature` middleware, and the `POST /webhooks/webfuse` handler that routes each verified envelope by category to `Lifecycle.Started`/`Ended`/`ParticipantsChanged`. Owns the webhook wire shapes; stores and publishes nothing itself. |
