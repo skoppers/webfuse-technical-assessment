@@ -28,8 +28,10 @@
 
         <section class="panel">
           <div class="controls" id="controls" hidden>
-            <button id="play">▶ Play</button>
-            <div class="progress"><div id="progress"></div></div>
+            <button id="toStart" title="Skip to beginning">⏮</button>
+            <button id="play" title="Play / pause">▶ Play</button>
+            <button id="toEnd" title="Skip to end">⏭</button>
+            <input type="range" class="scrubber" id="scrubber" min="0" max="0" value="0" step="1" />
             <span class="clock" id="clock"></span>
           </div>
           <h3 id="feedTitle">Event feed</h3>
@@ -167,8 +169,11 @@
 
       // ---- replay mode --------------------------------------------------------
 
-      // Playback is paced by client-ts deltas between consecutive events, with
-      // idle gaps capped so quiet stretches don't stall. Play/pause only.
+      // The timeline is indexed by event count: position n means the first n
+      // events have been applied. Playback is paced by client-ts deltas between
+      // consecutive events, with idle gaps capped so quiet stretches don't
+      // stall. Seeking rebuilds the meter and feed from scratch, which is cheap
+      // at the sizes a session log reaches.
       const MAX_GAP_MS = 3000;
 
       async function startReplay() {
@@ -176,6 +181,14 @@
         $("controls").hidden = false;
         clearFeed();
         feedEmpty.textContent = "Loading log…";
+
+        const playBtn = $("play");
+        const toStartBtn = $("toStart");
+        const toEndBtn = $("toEnd");
+        const scrubber = $("scrubber");
+        const clock = $("clock");
+        const setEnabled = (on) => { for (const el of [playBtn, toStartBtn, toEndBtn, scrubber]) el.disabled = !on; };
+        setEnabled(false);
 
         let events;
         try {
@@ -186,67 +199,95 @@
         }
         if (events.length === 0) {
           feedEmpty.textContent = "This session recorded no events.";
-          $("play").disabled = true;
           renderMeter($("meter"), createMeter().snapshot());
           return;
         }
-        feedEmpty.textContent = "Press play to replay the session.";
 
-        const playBtn = $("play");
-        const progress = $("progress");
-        const clock = $("clock");
+        const n = events.length;
         const first = events[0].ts;
-        const last = events[events.length - 1].ts;
-        let meter, i, timer = null, playing = false, virtualNow;
+        let meter = createMeter();
+        let pos = 0;             // events applied so far
+        let virtualNow = first;
+        let timer = null;
+        let playing = false;
 
-        const setClock = () => {
-          clock.textContent = `${clockTime(virtualNow)} · ${i}/${events.length}`;
-          progress.style.width = `${last > first ? ((virtualNow - first) / (last - first)) * 100 : 100}%`;
+        scrubber.max = String(n);
+
+        const gapAfter = (idx) => Math.min(Math.max(events[idx + 1].ts - events[idx].ts, 0), MAX_GAP_MS);
+
+        const renderControls = () => {
+          clock.textContent = `${clockTime(virtualNow)} · ${pos}/${n}`;
+          scrubber.value = String(pos);
+          playBtn.textContent = playing ? "❚❚ Pause" : pos >= n ? "↺ Replay" : "▶ Play";
+          toStartBtn.disabled = pos === 0;
+          toEndBtn.disabled = pos >= n;
         };
 
-        const reset = () => {
+        // seek rebuilds state so that exactly `target` events are applied.
+        const seek = (target) => {
+          target = Math.max(0, Math.min(n, target | 0));
           meter = createMeter();
-          i = 0;
-          virtualNow = first;
-          clearFeed();
+          for (let k = 0; k < target; k++) meter.add(events[k], events[k].ts);
+          pos = target;
+          virtualNow = pos === 0 ? first : events[pos - 1].ts;
+
+          feed.innerHTML = "";
+          const frag = document.createDocumentFragment();
+          for (let k = Math.max(0, pos - MAX_FEED); k < pos; k++) frag.appendChild(feedRow(events[k]));
+          feed.appendChild(frag);
+          feedEmpty.hidden = pos > 0;
           feedEmpty.textContent = "Press play to replay the session.";
+          feed.scrollTop = feed.scrollHeight;
+
           renderMeter($("meter"), meter.snapshot(virtualNow));
-          setClock();
+          renderControls();
         };
+
+        const stopTimer = () => { clearTimeout(timer); timer = null; };
 
         const step = () => {
-          const e = events[i++];
+          const e = events[pos++];
           virtualNow = e.ts;
           meter.add(e, e.ts);
           appendToFeed(e);
           renderMeter($("meter"), meter.snapshot(virtualNow));
-          setClock();
-          if (i >= events.length) {
-            playing = false;
-            playBtn.textContent = "↺ Replay";
-            return;
-          }
-          const gap = Math.min(Math.max(events[i].ts - e.ts, 0), MAX_GAP_MS);
+          if (pos >= n) { playing = false; timer = null; renderControls(); return; }
+          renderControls();
+          timer = setTimeout(step, gapAfter(pos - 1));
+        };
+
+        const schedule = () => {
+          stopTimer();
+          const gap = pos === 0 ? 0 : gapAfter(pos - 1);
           timer = setTimeout(step, gap);
         };
 
         const play = () => {
-          if (i >= events.length) reset();
+          if (pos >= n) seek(0);
           playing = true;
-          playBtn.textContent = "❚❚ Pause";
-          const gap = i === 0 ? 0 : Math.min(Math.max(events[i].ts - virtualNow, 0), MAX_GAP_MS);
-          timer = setTimeout(step, gap);
+          renderControls();
+          schedule();
         };
 
         const pause = () => {
           playing = false;
-          clearTimeout(timer); timer = null;
-          playBtn.textContent = "▶ Play";
+          stopTimer();
+          renderControls();
         };
 
-        playBtn.disabled = false;
         playBtn.onclick = () => (playing ? pause() : play());
-        reset();
+        toStartBtn.onclick = () => { pause(); seek(0); };
+        toEndBtn.onclick = () => { pause(); seek(n); };
+        scrubber.oninput = () => {
+          const wasPlaying = playing;
+          stopTimer();
+          seek(Number(scrubber.value));
+          if (wasPlaying && pos < n) schedule();
+          else if (wasPlaying) { playing = false; renderControls(); }
+        };
+
+        setEnabled(true);
+        seek(n);   // open paused, with the whole log on screen
       }
 
       // ---- boot ------------------------------------------------------------------
