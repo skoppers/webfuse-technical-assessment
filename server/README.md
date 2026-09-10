@@ -64,6 +64,7 @@ Regenerate queries after editing `internal/store/queries.sql` or the migrations:
 | `internal/session/` | The session lifecycle: `Lifecycle` applies webhooks (`Started`, `Ended`, `ParticipantsChanged`), ingest batches (`RecordEvents`) and the reaper (`ReapIdle`), persisting via `store` and publishing to the `stream` hub only when a row changed. Ingest, webhook, reaper and API handlers call this, never `store` or `Hub` directly. |
 | `internal/stream/` | In-process pub/sub `Hub`, SSE wire payload types (`SessionPayload`, `ActivityPayload`), and the `/stream` handlers. |
 | `internal/ingest/` | `POST /ingest`: the extension's batch wire shape (`Batch`, `Event`), `Validate` against the wire contract, and the handler that hands batches to `Lifecycle.RecordEvents`. |
+| `internal/webhook/` | The security boundary for Space lifecycle webhooks: `ReadBody` (gunzip, size cap), `Verify` (HMAC-SHA256, every header encoding and both raw/plain bytes tried, match logged), `Parse` into `Envelope` plus `SessionData`/`ParticipantData`, and the `RequireSignature` middleware. Stores and publishes nothing. |
 | `web/` | Dashboard assets embedded via `embed.FS`, served at `/`. |
 
 Reserved route prefixes not yet mounted: `/api`, `/webhooks`.
