@@ -18,6 +18,8 @@ import (
 
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/config"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/httpx"
+	"github.com/skoppers/webfuse-activity-analyzer/server/internal/ingest"
+	"github.com/skoppers/webfuse-activity-analyzer/server/internal/session"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/store"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/stream"
 	"github.com/skoppers/webfuse-activity-analyzer/server/web"
@@ -55,10 +57,11 @@ func run(log *slog.Logger) error {
 	}
 
 	hub := stream.NewHub()
+	lc := session.New(store.New(db), hub)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           newRouter(log, hub),
+		Handler:           newRouter(log, cfg, lc, hub),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	// Open SSE streams never go idle on their own; close the hub so they end
@@ -85,10 +88,9 @@ func run(log *slog.Logger) error {
 	return nil
 }
 
-// newRouter mounts all routes. /api, /ingest and /webhooks are reserved for
-// the API, ingest and webhook handlers; everything else falls through to the
-// embedded web/.
-func newRouter(log *slog.Logger, hub *stream.Hub) http.Handler {
+// newRouter mounts all routes. /api and /webhooks are reserved for the API
+// and webhook handlers; everything else falls through to the embedded web/.
+func newRouter(log *slog.Logger, cfg config.Config, lc *session.Lifecycle, hub *stream.Hub) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -99,6 +101,7 @@ func newRouter(log *slog.Logger, hub *stream.Hub) http.Handler {
 		httpx.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	})
 
+	r.Mount("/ingest", ingest.Handler(lc, cfg.CORSOrigin))
 	r.Mount("/stream", stream.Handler(hub))
 	r.Handle("/*", http.FileServerFS(web.Assets))
 	return r

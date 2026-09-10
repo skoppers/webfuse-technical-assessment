@@ -209,7 +209,7 @@ func TestEndedPublishesOnce(t *testing.T) {
 	}
 	recv(t, f.one)
 
-	// Replayed / later end: no-op, no message.
+	// Replayed or subsequent end: no-op, no message.
 	for _, seq := range []int64{2, 3} {
 		if _, ended, err := f.lc.Ended(ctx, "s1", endAt.Add(time.Hour), seq); err != nil || ended {
 			t.Errorf("seq %d: ended=%v err=%v", seq, ended, err)
@@ -249,7 +249,7 @@ func TestParticipantsChangedCreatesStub(t *testing.T) {
 	}
 	assertNone(t, f.overview)
 
-	// A later started webhook still enriches the stub.
+	// A subsequent started webhook still enriches the stub.
 	if _, _, err := f.lc.Started(ctx, StartedParams{ID: "s1", SpaceID: "sp", StartedAt: at.Add(-time.Second), ParticipantCount: 3, Seq: 6}); err != nil {
 		t.Fatal(err)
 	}
