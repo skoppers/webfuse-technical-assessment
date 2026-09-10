@@ -86,7 +86,3 @@ RETURNING id;
 SELECT * FROM events
 WHERE session_id = @session_id
 ORDER BY ts, seq;
-
--- name: CountEventsBySession :one
-SELECT count(*) FROM events
-WHERE session_id = @session_id;

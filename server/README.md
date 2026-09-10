@@ -40,7 +40,7 @@ The server needs Postgres 14+ and applies its embedded migrations on every start
   export DATABASE_URL='postgres://postgres@localhost:5432/saa?sslmode=disable'
   ```
 
-Store, session, ingest and webhook integration tests run only when `TEST_DATABASE_URL` is set.
+Store, session, ingest, webhook and API integration tests run only when `TEST_DATABASE_URL` is set.
 They migrate and truncate the tables, so use a throwaway database:
 
 ```sh
@@ -57,7 +57,7 @@ Regenerate queries after editing `internal/store/queries.sql` or the migrations:
 |---|---|
 | `cmd/server/main.go` | Wiring only: config → deps → routes → run, graceful shutdown. |
 | `internal/config/` | `Config` + `Load()` from env. |
-| `internal/httpx/` | JSON read/write, error responses, request-logging middleware. |
+| `internal/httpx/` | JSON read/write, error responses, request-logging and no-store cache middleware. |
 | `internal/store/` | Postgres handle (`Open`), embedded goose migrations (`Migrate`), schema in `migrations/`, queries in `queries.sql`, `Store` wrapper in `store.go`. |
 | `internal/store/gen/` | sqlc output for `queries.sql` (generated, do not edit). |
 | `internal/event/` | The session event contract: the seven event types, `Valid`, `IsKey`. Mirrors the extension's `types.ts`. |
@@ -65,19 +65,29 @@ Regenerate queries after editing `internal/store/queries.sql` or the migrations:
 | `internal/stream/` | In-process pub/sub `Hub`, SSE wire payload types (`SessionPayload`, `ActivityPayload`), and the `/stream` handlers. |
 | `internal/ingest/` | `POST /ingest`: the extension's batch wire shape (`Batch`, `Event`), `Validate` against the wire contract, and the handler that hands batches to `Lifecycle.RecordEvents`. |
 | `internal/webhook/` | The security boundary for Space lifecycle webhooks: `ReadBody` (gunzip, size cap), `Verify` (HMAC-SHA256, every header encoding and both raw/plain bytes tried, match logged), `Parse` into `Envelope` plus `SessionData`/`ParticipantData`, the `RequireSignature` middleware, and the `POST /webhooks/webfuse` handler that routes each verified envelope by category to `Lifecycle.Started`/`Ended`/`ParticipantsChanged`. Owns the webhook wire shapes; stores and publishes nothing itself. |
+| `internal/api/` | The dashboard's read API under `/api`: session list, session detail and the full ordered event log for replay. Owns the response types (`Session`, `Event`) and maps them from `session` rows; calls `Lifecycle.List`/`Get`/`Events` only. |
 | `web/` | Dashboard assets embedded via `embed.FS`, served at `/`. |
-
-Reserved route prefix not yet mounted: `/api`.
 
 ## Endpoints
 
 | Route | Purpose |
 |---|---|
 | `GET /healthz` | Liveness check, `{"ok":true}`. |
+| `GET /api/sessions?limit=N` | Session list for the overview: `{"sessions": [...]}`, live first then newest first. `limit` defaults to 100, is clamped to 500, and must be a positive integer (`400 {"error": ...}` otherwise). |
+| `GET /api/sessions/{id}` | One session, `404 {"error":"not found"}` when unknown. |
+| `GET /api/sessions/{id}/events` | The session's full event log for replay: `{"session_id", "events": [...]}` ordered by `ts` then `seq`; `404` when the session is unknown. |
 | `POST /ingest` | Extension event batch; `202 {"accepted": n, "duplicates": m}`, `400 {"error": ...}` on a bad batch. Answers CORS preflight for `CORS_ORIGIN`. |
 | `GET /stream` | SSE overview: every `session` message plus key `activity` events. |
 | `GET /stream/{id}` | SSE for one session: every `session` and `activity` message for `{id}`. |
 | `POST /webhooks/webfuse` | Signed Space webhook (`Webhook-Signature` HMAC-SHA256 under `WEBHOOK_SIGNING_KEY`, gzip body accepted). Handles `space.session.started`, `.ended`, `.participant_joined`, `.participant_left`; every verified delivery is `200 {"outcome": "applied|stale|ignored"}` (`stale` for replays, out-of-order retries and ended sessions; `ignored` for other categories or a `participant_left` on an unknown session), `400` for an unparseable body, `401` when unsigned or mis-signed. |
+
+`/api` responses are `Cache-Control: no-store`. A session is `{"session_id", "space_id",
+"status": "live|ended", "started_at", "ended_at", "participant_count", "source": "webhook|event",
+"metadata"}`, the same shape as the SSE `session` payload plus `source` and `metadata`;
+timestamps are RFC 3339, `ended_at` is `null` while the session is live and `metadata` is
+always an object. An event is `{"seq", "type", "ts", "received_at", "data"}` with `ts` in
+epoch milliseconds, the unit the extension sends to `/ingest`, `received_at` RFC 3339 and
+`data` always an object.
 
 SSE frames are `id: N`, `event: session|activity`, `data: <single-line JSON>`, blank line;
 `: ping` is sent every 15 s while idle. A client that falls more than 64 messages behind

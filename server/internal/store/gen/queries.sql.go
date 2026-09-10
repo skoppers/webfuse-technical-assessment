@@ -12,18 +12,6 @@ import (
 	"time"
 )
 
-const countEventsBySession = `-- name: CountEventsBySession :one
-SELECT count(*) FROM events
-WHERE session_id = $1
-`
-
-func (q *Queries) CountEventsBySession(ctx context.Context, sessionID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countEventsBySession, sessionID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const endSession = `-- name: EndSession :one
 UPDATE sessions
 SET status           = 'ended',

@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/skoppers/webfuse-activity-analyzer/server/internal/api"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/config"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/httpx"
 	"github.com/skoppers/webfuse-activity-analyzer/server/internal/ingest"
@@ -89,8 +90,8 @@ func run(log *slog.Logger) error {
 	return nil
 }
 
-// newRouter mounts all routes. /api is reserved for the API handlers;
-// everything else falls through to the embedded web/.
+// newRouter mounts all routes; anything not matched by a handler falls
+// through to the embedded web/.
 func newRouter(log *slog.Logger, cfg config.Config, lc *session.Lifecycle, hub *stream.Hub) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -102,6 +103,7 @@ func newRouter(log *slog.Logger, cfg config.Config, lc *session.Lifecycle, hub *
 		httpx.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	})
 
+	r.Mount("/api", api.Handler(lc))
 	r.Mount("/ingest", ingest.Handler(lc, cfg.CORSOrigin))
 	r.Mount("/stream", stream.Handler(hub))
 	r.Mount("/webhooks", webhook.Handler(lc, cfg.WebhookSigningKey))

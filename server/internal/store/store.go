@@ -213,15 +213,6 @@ func (s *Store) ListEventsBySession(ctx context.Context, id string) ([]Event, er
 	return out, nil
 }
 
-// CountEventsBySession returns the number of stored events for a session.
-func (s *Store) CountEventsBySession(ctx context.Context, id string) (int64, error) {
-	n, err := s.q.CountEventsBySession(ctx, id)
-	if err != nil {
-		return 0, fmt.Errorf("count events %q: %w", id, err)
-	}
-	return n, nil
-}
-
 // updatedSession turns the result of a guarded UPDATE ... RETURNING into
 // (session, updated, error): no row means the guard rejected the change.
 func updatedSession(row gen.Session, err error, op, id string) (Session, bool, error) {

@@ -349,7 +349,7 @@ func TestInsertEvent(t *testing.T) {
 	}
 }
 
-func TestListAndCountEventsBySession(t *testing.T) {
+func TestListEventsBySession(t *testing.T) {
 	st := New(openTestDB(t))
 	ctx := context.Background()
 	mustCreate(t, st, "s1", time.Now())
@@ -381,24 +381,12 @@ func TestListAndCountEventsBySession(t *testing.T) {
 		}
 	}
 
-	n, err := st.CountEventsBySession(ctx, "s1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 4 {
-		t.Errorf("count = %d, want 4", n)
-	}
-
 	none, err := st.ListEventsBySession(ctx, "nobody")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if none == nil || len(none) != 0 {
 		t.Errorf("events for unknown session = %#v, want empty slice", none)
-	}
-	n, err = st.CountEventsBySession(ctx, "nobody")
-	if err != nil || n != 0 {
-		t.Errorf("count for unknown session = %d, %v", n, err)
 	}
 }
 
