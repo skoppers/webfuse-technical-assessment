@@ -29,6 +29,8 @@ func serve(t *testing.T, body []byte, sig string) (*httptest.ResponseRecorder, b
 	return w, called, got
 }
 
+// TestRequireSignaturePlain verifies a gzipped request body against a
+// signature over the decompressed bytes and stores those bytes for Body.
 func TestRequireSignaturePlain(t *testing.T) {
 	plain := []byte(payloadStarted)
 	w, called, got := serve(t, gz(t, plain), hex.EncodeToString(sign(testKey, plain)))
@@ -40,15 +42,14 @@ func TestRequireSignaturePlain(t *testing.T) {
 	}
 }
 
-func TestRequireSignatureRaw(t *testing.T) {
+// TestRequireSignatureRawRejected pins that the signature is checked over the
+// decompressed body only: a signature over the gzipped wire bytes is a 401.
+func TestRequireSignatureRawRejected(t *testing.T) {
 	plain := []byte(payloadStarted)
 	raw := gz(t, plain)
-	w, called, got := serve(t, raw, hex.EncodeToString(sign(testKey, raw)))
-	if w.Code != http.StatusOK || !called {
+	w, called, _ := serve(t, raw, hex.EncodeToString(sign(testKey, raw)))
+	if w.Code != http.StatusUnauthorized || called {
 		t.Fatalf("status %d called %v: %s", w.Code, called, w.Body)
-	}
-	if !bytes.Equal(got, plain) {
-		t.Fatalf("Body(ctx) = %q", got)
 	}
 }
 

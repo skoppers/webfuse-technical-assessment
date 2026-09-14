@@ -12,8 +12,9 @@ test:
 	go test ./...
 
 # Store, session, reaper, ingest, webhook and API integration tests against a throwaway database.
+# -p 1: every package truncates (and the store package re-creates) the same tables, so they cannot run in parallel.
 test-db:
-	TEST_DATABASE_URL='$(TEST_DATABASE_URL)' go test ./internal/store/... ./internal/session/... ./internal/reaper/... ./internal/ingest/... ./internal/webhook/... ./internal/api/...
+	TEST_DATABASE_URL='$(TEST_DATABASE_URL)' go test -p 1 ./internal/store/... ./internal/session/... ./internal/reaper/... ./internal/ingest/... ./internal/webhook/... ./internal/api/...
 
 # Run the server from source, loading .env into the environment when present.
 run:
