@@ -15,6 +15,10 @@ Connected to this space: https://surfly.online/studio/spaces/3330/overview
 - A Go server that ingests events and stores them in a postgres database. Streams the events through SSE to the dashboard.
 - Dashboard in plain js/html to display a live session list and a per-session live feed with timeline scrubber  
 
+## Decisions to discuss:
+- The lifecyle reconciliation that happens on the server. Instead of fully trusting webhooks or events, I decided to reduce the best information from both sources.
+- I used SSE for streaming the dashboard over websockets.
+
 ## Run local instructions:
 
 | Part | Docs |
