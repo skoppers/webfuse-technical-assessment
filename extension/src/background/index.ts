@@ -14,6 +14,8 @@ async function main(): Promise<void> {
   const recorder = createRecorder({
     sessionId: ctx.sessionId,
     spaceId: ctx.spaceId,
+    // Once per service-worker boot; a restart gets a fresh id so its seq restarting at 1 does not collide.
+    clientId: crypto.randomUUID(),
     send: createTransport({ collectorUrl: readCollectorUrl() }),
     onUpdate: pushMeterEvent,
   });

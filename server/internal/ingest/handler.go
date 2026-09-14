@@ -40,7 +40,7 @@ func Handler(lc *session.Lifecycle, corsOrigin string) http.Handler {
 			httpx.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		res, err := lc.RecordEvents(r.Context(), b.SessionID, b.SpaceID, now, toNewEvents(b))
+		res, err := lc.RecordEvents(r.Context(), b.SessionID, b.SpaceID, b.ClientID, now, toNewEvents(b))
 		switch {
 		case errors.Is(err, session.ErrInvalidEventType), errors.Is(err, session.ErrEmptyBatch):
 			httpx.Error(w, http.StatusBadRequest, err.Error())

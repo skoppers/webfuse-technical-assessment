@@ -58,7 +58,7 @@ RETURNING *;
 
 -- name: ListSessions :many
 -- Live sessions first, newest first, each with how many of its stored
--- events are key events and the latest of them by ts then seq. The last_key_*
+-- events are key events and the latest of them by ts, seq, client_id. The last_key_*
 -- columns are zero values (id 0) when the session has no key event; sqlc
 -- cannot see the LEFT JOIN LATERAL as nullable, so they are coalesced.
 -- key_types is the comma-joined key event type list, passed in so the event
@@ -66,6 +66,7 @@ RETURNING *;
 SELECT s.*,
        k.key_event_count,
        COALESCE(lk.id, 0)                  AS last_key_id,
+       COALESCE(lk.client_id, '')          AS last_key_client_id,
        COALESCE(lk.seq, 0)                 AS last_key_seq,
        COALESCE(lk.type, '')               AS last_key_type,
        COALESCE(lk.ts, s.started_at)       AS last_key_ts,
@@ -78,10 +79,10 @@ CROSS JOIN LATERAL (
   WHERE e.session_id = s.session_id AND e.type = ANY(string_to_array(@key_types::text, ','))
 ) k
 LEFT JOIN LATERAL (
-  SELECT e.id, e.seq, e.type, e.ts, e.received_at, e.data
+  SELECT e.id, e.client_id, e.seq, e.type, e.ts, e.received_at, e.data
   FROM events e
   WHERE e.session_id = s.session_id AND e.type = ANY(string_to_array(@key_types::text, ','))
-  ORDER BY e.ts DESC, e.seq DESC
+  ORDER BY e.ts DESC, e.seq DESC, e.client_id DESC
   LIMIT 1
 ) lk ON true
 ORDER BY (s.status = 'live') DESC, s.started_at DESC, s.session_id
@@ -101,13 +102,15 @@ ORDER BY s.started_at, s.session_id;
 -- Events --------------------------------------------------------------------
 
 -- name: InsertEvent :one
--- Returns no row when (session_id, seq) was already stored.
-INSERT INTO events (session_id, seq, type, ts, data)
-VALUES (@session_id, @seq, @type, @ts, @data)
-ON CONFLICT (session_id, seq) DO NOTHING
+-- Returns no row when (session_id, client_id, seq) was already stored.
+INSERT INTO events (session_id, client_id, seq, type, ts, data)
+VALUES (@session_id, @client_id, @seq, @type, @ts, @data)
+ON CONFLICT (session_id, client_id, seq) DO NOTHING
 RETURNING id;
 
 -- name: ListEventsBySession :many
+-- Replay order: ts, then seq (ties within one client), then client_id so the
+-- order is deterministic across clients.
 SELECT * FROM events
 WHERE session_id = @session_id
-ORDER BY ts, seq;
+ORDER BY ts, seq, client_id;

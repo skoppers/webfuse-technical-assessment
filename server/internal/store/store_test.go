@@ -344,7 +344,7 @@ func TestInsertEvent(t *testing.T) {
 	mustCreate(t, st, "s1", time.Now())
 	ts := time.UnixMilli(1767322445123).UTC() // non-zero millisecond part
 
-	id, inserted, err := st.InsertEvent(ctx, "s1", 1, "click", ts, json.RawMessage(`{"x":1}`))
+	id, inserted, err := st.InsertEvent(ctx, "s1", "c1", 1, "click", ts, json.RawMessage(`{"x":1}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +352,7 @@ func TestInsertEvent(t *testing.T) {
 		t.Fatalf("first insert: id=%d inserted=%v", id, inserted)
 	}
 
-	dupID, inserted, err := st.InsertEvent(ctx, "s1", 1, "click", ts.Add(5*time.Millisecond), json.RawMessage(`{"x":2}`))
+	dupID, inserted, err := st.InsertEvent(ctx, "s1", "c1", 1, "click", ts.Add(5*time.Millisecond), json.RawMessage(`{"x":2}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +361,7 @@ func TestInsertEvent(t *testing.T) {
 	}
 
 	// Nil data is stored as an empty object.
-	if _, inserted, err := st.InsertEvent(ctx, "s1", 2, "scroll", ts, nil); err != nil || !inserted {
+	if _, inserted, err := st.InsertEvent(ctx, "s1", "c1", 2, "scroll", ts, nil); err != nil || !inserted {
 		t.Fatalf("insert nil data: inserted=%v err=%v", inserted, err)
 	}
 
@@ -382,8 +382,35 @@ func TestInsertEvent(t *testing.T) {
 	}
 
 	// Unknown session violates the foreign key.
-	if _, _, err := st.InsertEvent(ctx, "missing", 1, "click", ts, nil); err == nil {
+	if _, _, err := st.InsertEvent(ctx, "missing", "c1", 1, "click", ts, nil); err == nil {
 		t.Error("insert for unknown session succeeded")
+	}
+}
+
+// Two clients (participants, or one restarted background) each count seq
+// from 1; the key is per client, so both rows are stored and only a repeat
+// of the same (client, seq) is a duplicate.
+func TestInsertEventPerClient(t *testing.T) {
+	st := New(openTestDB(t))
+	ctx := context.Background()
+	mustCreate(t, st, "s1", time.Now())
+	ts := time.UnixMilli(1767322445000).UTC()
+
+	for _, client := range []string{"owner", "viewer"} {
+		if _, inserted, err := st.InsertEvent(ctx, "s1", client, 1, "click", ts, nil); err != nil || !inserted {
+			t.Fatalf("client %s seq 1: inserted=%v err=%v", client, inserted, err)
+		}
+	}
+	if _, inserted, err := st.InsertEvent(ctx, "s1", "viewer", 1, "click", ts, nil); err != nil || inserted {
+		t.Errorf("repeat of viewer seq 1: inserted=%v err=%v, want duplicate", inserted, err)
+	}
+
+	events, err := st.ListEventsBySession(ctx, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[0].ClientID != "owner" || events[1].ClientID != "viewer" || events[0].Seq != 1 || events[1].Seq != 1 {
+		t.Errorf("events = %+v, want owner/1 then viewer/1", events)
 	}
 }
 
@@ -399,7 +426,7 @@ func TestListEventsBySession(t *testing.T) {
 		seq int
 		ts  time.Time
 	}{{3, base.Add(2 * time.Second)}, {1, base.Add(time.Second)}, {4, base.Add(time.Second)}, {2, base}} {
-		if _, inserted, err := st.InsertEvent(ctx, "s1", e.seq, "click", e.ts, nil); err != nil || !inserted {
+		if _, inserted, err := st.InsertEvent(ctx, "s1", "c1", e.seq, "click", e.ts, nil); err != nil || !inserted {
 			t.Fatalf("insert seq %d: inserted=%v err=%v", e.seq, inserted, err)
 		}
 	}
@@ -437,14 +464,14 @@ func mustCreate(t *testing.T, st *Store, id string, startedAt time.Time) {
 
 func mustInsertEvent(t *testing.T, st *Store, sessionID string, seq int) {
 	t.Helper()
-	if _, inserted, err := st.InsertEvent(context.Background(), sessionID, seq, "click", time.Now(), nil); err != nil || !inserted {
+	if _, inserted, err := st.InsertEvent(context.Background(), sessionID, "c1", seq, "click", time.Now(), nil); err != nil || !inserted {
 		t.Fatalf("insert event %s/%d: inserted=%v err=%v", sessionID, seq, inserted, err)
 	}
 }
 
 func mustInsertTypedEvent(t *testing.T, st *Store, sessionID string, seq int, typ string, ts time.Time, data json.RawMessage) {
 	t.Helper()
-	if _, inserted, err := st.InsertEvent(context.Background(), sessionID, seq, typ, ts, data); err != nil || !inserted {
+	if _, inserted, err := st.InsertEvent(context.Background(), sessionID, "c1", seq, typ, ts, data); err != nil || !inserted {
 		t.Fatalf("insert event %s/%d: inserted=%v err=%v", sessionID, seq, inserted, err)
 	}
 }

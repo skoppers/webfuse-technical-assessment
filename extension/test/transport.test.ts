@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IngestBatch } from "../../shared/types";
 import { createTransport, ingestUrl } from "../src/background/transport";
 
-const batch: IngestBatch = { session_id: "s1", space_id: "sp", events: [{ type: "click", seq: 1, ts: 1, data: {} }] };
+const batch: IngestBatch = { session_id: "s1", space_id: "sp", client_id: "c1", events: [{ type: "click", seq: 1, ts: 1, data: {} }] };
 
 function mockFetch(status: number, body = "") {
   return vi.fn(async () => new Response(body, { status })) as unknown as typeof fetch;

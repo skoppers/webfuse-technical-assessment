@@ -122,7 +122,7 @@ set `PUBLIC_URL` to that URL and point the Space webhook and the extension at it
 | `GET /healthz` | Liveness check, `{"ok":true}`. |
 | `GET /api/sessions?limit=N` | Session list for the overview: `{"sessions": [...]}`, live first then newest first, each session plus `key_event_count` and `last_key_event` (an event, or `null` when it has none). `limit` defaults to 100, is clamped to 500, and must be a positive integer (`400 {"error": ...}` otherwise). |
 | `GET /api/sessions/{id}` | One session, `404 {"error":"not found"}` when unknown. |
-| `GET /api/sessions/{id}/events` | The session's full event log for replay: `{"session_id", "events": [...]}` ordered by `ts` then `seq`; `404` when the session is unknown. |
+| `GET /api/sessions/{id}/events` | The session's full event log for replay: `{"session_id", "events": [...]}` ordered by `ts`, `seq`, `client_id`; `404` when the session is unknown. |
 | `POST /ingest` | Extension event batch; `202 {"accepted": n, "duplicates": m}`, `400 {"error": ...}` on a bad batch. Answers CORS preflight for `CORS_ORIGIN`. |
 | `GET /stream` | SSE overview: every `session` message plus key `activity` events. |
 | `GET /stream/{id}` | SSE for one session: every `session` and `activity` message for `{id}`. |
@@ -132,16 +132,19 @@ set `PUBLIC_URL` to that URL and point the Space webhook and the extension at it
 "status": "live|ended", "started_at", "ended_at", "participant_count", "source": "webhook|event",
 "metadata"}`, the same shape as the SSE `session` payload plus `source` and `metadata`;
 timestamps are RFC 3339, `ended_at` is `null` while the session is live and `metadata` is
-always an object. An event is `{"seq", "type", "ts", "received_at", "data"}` with `ts` in
-epoch milliseconds, the unit the extension sends to `/ingest`, `received_at` RFC 3339 and
-`data` always an object.
+always an object. An event is `{"client_id", "seq", "type", "ts", "received_at", "data"}` with
+`client_id` the sending background boot (`seq` is unique only within it), `ts` in epoch
+milliseconds, the unit the extension sends to `/ingest`, `received_at` RFC 3339 and `data`
+always an object.
 
 SSE frames are `id: N`, `event: session|activity`, `data: <single-line JSON>`, blank line;
 `: ping` is sent every 15 s while idle. A client that falls more than 64 messages behind
 is disconnected (no replay); it should reconnect and re-read `GET /api/sessions`.
 `Last-Event-ID` is accepted and logged but not used for replay.
 
-`POST /ingest` takes `{"session_id", "space_id", "events": [{"type", "seq", "ts", "data"}]}`:
+`POST /ingest` takes `{"session_id", "space_id", "client_id", "events": [{"type", "seq", "ts", "data"}]}`:
+`client_id` 1-64 characters (a random id the extension background generates once per boot,
+so every participant and every service-worker restart counts `seq` from 1 independently),
 1-500 events, `seq` in 1..2^31-1, `ts` epoch milliseconds within a day of server time,
 `data` an optional JSON object of at most 4 KiB, body at most 1 MiB. Resending a batch
-is safe: events already stored for `(session_id, seq)` are counted as duplicates.
+is safe: events already stored for `(session_id, client_id, seq)` are counted as duplicates.

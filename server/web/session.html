@@ -104,7 +104,7 @@
 
       // The per-session stream has no history, so a page opened mid-session
       // backfills from the log first. Stream frames that arrive while the
-      // backfill is in flight are held and applied after it, deduped on seq.
+      // backfill is in flight are held and applied after it, deduped on (client_id, seq).
       async function startLive() {
         $("controls").hidden = true;
         $("conn").hidden = false;
@@ -116,8 +116,9 @@
         tick();
 
         const apply = (a) => {
-          if (seen.has(a.seq)) return;
-          seen.add(a.seq);
+          const key = `${a.client_id}:${a.seq}`;
+          if (seen.has(key)) return;
+          seen.add(key);
           meter.add(a, a.ts);
           appendToFeed(a);
         };

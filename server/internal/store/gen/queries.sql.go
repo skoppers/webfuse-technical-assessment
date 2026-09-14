@@ -126,14 +126,15 @@ func (q *Queries) GetSession(ctx context.Context, sessionID string) (Session, er
 
 const insertEvent = `-- name: InsertEvent :one
 
-INSERT INTO events (session_id, seq, type, ts, data)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (session_id, seq) DO NOTHING
+INSERT INTO events (session_id, client_id, seq, type, ts, data)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (session_id, client_id, seq) DO NOTHING
 RETURNING id
 `
 
 type InsertEventParams struct {
 	SessionID string
+	ClientID  string
 	Seq       int32
 	Type      string
 	Ts        time.Time
@@ -141,10 +142,11 @@ type InsertEventParams struct {
 }
 
 // Events --------------------------------------------------------------------
-// Returns no row when (session_id, seq) was already stored.
+// Returns no row when (session_id, client_id, seq) was already stored.
 func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, insertEvent,
 		arg.SessionID,
+		arg.ClientID,
 		arg.Seq,
 		arg.Type,
 		arg.Ts,
@@ -201,11 +203,13 @@ func (q *Queries) InsertSessionIfAbsent(ctx context.Context, arg InsertSessionIf
 }
 
 const listEventsBySession = `-- name: ListEventsBySession :many
-SELECT id, session_id, seq, type, ts, received_at, data FROM events
+SELECT id, session_id, seq, type, ts, received_at, data, client_id FROM events
 WHERE session_id = $1
-ORDER BY ts, seq
+ORDER BY ts, seq, client_id
 `
 
+// Replay order: ts, then seq (ties within one client), then client_id so the
+// order is deterministic across clients.
 func (q *Queries) ListEventsBySession(ctx context.Context, sessionID string) ([]Event, error) {
 	rows, err := q.db.QueryContext(ctx, listEventsBySession, sessionID)
 	if err != nil {
@@ -223,6 +227,7 @@ func (q *Queries) ListEventsBySession(ctx context.Context, sessionID string) ([]
 			&i.Ts,
 			&i.ReceivedAt,
 			&i.Data,
+			&i.ClientID,
 		); err != nil {
 			return nil, err
 		}
@@ -287,6 +292,7 @@ const listSessions = `-- name: ListSessions :many
 SELECT s.session_id, s.space_id, s.status, s.started_at, s.ended_at, s.source, s.participant_count, s.metadata, s.last_webhook_seq, s.created_at,
        k.key_event_count,
        COALESCE(lk.id, 0)                  AS last_key_id,
+       COALESCE(lk.client_id, '')          AS last_key_client_id,
        COALESCE(lk.seq, 0)                 AS last_key_seq,
        COALESCE(lk.type, '')               AS last_key_type,
        COALESCE(lk.ts, s.started_at)       AS last_key_ts,
@@ -299,10 +305,10 @@ CROSS JOIN LATERAL (
   WHERE e.session_id = s.session_id AND e.type = ANY(string_to_array($1::text, ','))
 ) k
 LEFT JOIN LATERAL (
-  SELECT e.id, e.seq, e.type, e.ts, e.received_at, e.data
+  SELECT e.id, e.client_id, e.seq, e.type, e.ts, e.received_at, e.data
   FROM events e
   WHERE e.session_id = s.session_id AND e.type = ANY(string_to_array($1::text, ','))
-  ORDER BY e.ts DESC, e.seq DESC
+  ORDER BY e.ts DESC, e.seq DESC, e.client_id DESC
   LIMIT 1
 ) lk ON true
 ORDER BY (s.status = 'live') DESC, s.started_at DESC, s.session_id
@@ -327,6 +333,7 @@ type ListSessionsRow struct {
 	CreatedAt         time.Time
 	KeyEventCount     int32
 	LastKeyID         int64
+	LastKeyClientID   string
 	LastKeySeq        int32
 	LastKeyType       string
 	LastKeyTs         time.Time
@@ -335,7 +342,7 @@ type ListSessionsRow struct {
 }
 
 // Live sessions first, newest first, each with how many of its stored
-// events are key events and the latest of them by ts then seq. The last_key_*
+// events are key events and the latest of them by ts, seq, client_id. The last_key_*
 // columns are zero values (id 0) when the session has no key event; sqlc
 // cannot see the LEFT JOIN LATERAL as nullable, so they are coalesced.
 // key_types is the comma-joined key event type list, passed in so the event
@@ -362,6 +369,7 @@ func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]L
 			&i.CreatedAt,
 			&i.KeyEventCount,
 			&i.LastKeyID,
+			&i.LastKeyClientID,
 			&i.LastKeySeq,
 			&i.LastKeyType,
 			&i.LastKeyTs,

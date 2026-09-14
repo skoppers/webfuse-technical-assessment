@@ -71,7 +71,7 @@ func (f *fixture) seed(t *testing.T) {
 			t.Fatalf("start %s: %v", s.ID, err)
 		}
 	}
-	if _, err := f.lc.RecordEvents(ctx, activeID, "sp", now, []session.NewEvent{
+	if _, err := f.lc.RecordEvents(ctx, activeID, "sp", "c1", now, []session.NewEvent{
 		{Type: event.Click, Seq: 1, TS: now},
 	}); err != nil {
 		t.Fatalf("record event for %s: %v", activeID, err)

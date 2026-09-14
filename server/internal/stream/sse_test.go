@@ -143,14 +143,14 @@ func TestSSEOverviewFiltersActivity(t *testing.T) {
 
 	ts := time.Date(2026, 1, 2, 3, 4, 5, 456000000, time.UTC)
 	s.hub.Publish(Message{Event: EventActivity, SessionID: "s1", Key: false, Data: ActivityPayload{
-		SessionID: "s1", Type: "click", Seq: 1, TS: ts.UnixMilli(), Data: json.RawMessage(`{"x":1}`),
+		SessionID: "s1", ClientID: "c1", Type: "click", Seq: 1, TS: ts.UnixMilli(), Data: json.RawMessage(`{"x":1}`),
 	}})
 	s.hub.Publish(Message{Event: EventActivity, SessionID: "s1", Key: true, Data: ActivityPayload{
-		SessionID: "s1", Type: "form_submit", Seq: 2, TS: ts.UnixMilli(), Data: json.RawMessage(`{"fieldCount":3}`),
+		SessionID: "s1", ClientID: "c1", Type: "form_submit", Seq: 2, TS: ts.UnixMilli(), Data: json.RawMessage(`{"fieldCount":3}`),
 	}})
 
 	want := "id: 2\nevent: activity\ndata: " +
-		`{"session_id":"s1","type":"form_submit","seq":2,"ts":1767323045456,"data":{"fieldCount":3}}` +
+		`{"session_id":"s1","client_id":"c1","type":"form_submit","seq":2,"ts":1767323045456,"data":{"fieldCount":3}}` +
 		"\n\n"
 	if got := readFrame(t, sc); got != want {
 		t.Errorf("frame:\n got %q\nwant %q", got, want)
@@ -164,12 +164,12 @@ func TestSSEPerSessionRoute(t *testing.T) {
 
 	for _, id := range []string{"s1", "s2"} {
 		s.hub.Publish(Message{Event: EventActivity, SessionID: id, Data: ActivityPayload{
-			SessionID: id, Type: "click", Seq: 1, TS: 1, Data: json.RawMessage(`{}`),
+			SessionID: id, ClientID: "c1", Type: "click", Seq: 1, TS: 1, Data: json.RawMessage(`{}`),
 		}})
 	}
 
 	want := "id: 2\nevent: activity\ndata: " +
-		`{"session_id":"s2","type":"click","seq":1,"ts":1,"data":{}}` +
+		`{"session_id":"s2","client_id":"c1","type":"click","seq":1,"ts":1,"data":{}}` +
 		"\n\n"
 	if got := readFrame(t, sc); got != want {
 		t.Errorf("frame:\n got %q\nwant %q", got, want)

@@ -20,16 +20,20 @@ import (
 // Limits of the wire contract.
 const (
 	maxSessionIDChars = 128
+	maxClientIDChars  = 64
 	maxEvents         = 500
 	maxSeq            = math.MaxInt32
 	maxDataBytes      = 4 << 10
 	tsWindow          = 24 * time.Hour
 )
 
-// Batch is the payload of POST /ingest as the extension sends it.
+// Batch is the payload of POST /ingest as the extension sends it. ClientID
+// is the sender's per-boot id: seq restarts at 1 in every background boot of
+// every participant, so the server dedups on (session_id, client_id, seq).
 type Batch struct {
 	SessionID string  `json:"session_id"`
 	SpaceID   string  `json:"space_id"`
+	ClientID  string  `json:"client_id"`
 	Events    []Event `json:"events"`
 }
 
@@ -54,6 +58,12 @@ func Validate(batch Batch, now time.Time) error {
 	}
 	if batch.SpaceID == "" {
 		return fmt.Errorf("space_id: must not be empty")
+	}
+	if batch.ClientID == "" {
+		return fmt.Errorf("client_id: must not be empty")
+	}
+	if utf8.RuneCountInString(batch.ClientID) > maxClientIDChars {
+		return fmt.Errorf("client_id: must be at most %d characters", maxClientIDChars)
 	}
 	if n := len(batch.Events); n < 1 || n > maxEvents {
 		return fmt.Errorf("events: must contain between 1 and %d events, got %d", maxEvents, n)

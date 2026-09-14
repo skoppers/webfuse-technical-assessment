@@ -47,11 +47,13 @@ type SessionSummary struct {
 	LastKeyEvent  *Event
 }
 
-// Event is a row of the events table. TS is the event's own timestamp as
-// reported by the client; ReceivedAt is when the server stored it.
+// Event is a row of the events table. ClientID names the background boot that
+// produced it; (SessionID, ClientID, Seq) is unique. TS is the event's own
+// timestamp as reported by the client; ReceivedAt is when the server stored it.
 type Event struct {
 	ID         int64
 	SessionID  string
+	ClientID   string
 	Seq        int
 	Type       string
 	TS         time.Time
@@ -192,10 +194,11 @@ func (s *Store) ListIdleLiveSessions(ctx context.Context, cutoff time.Time) ([]S
 }
 
 // InsertEvent stores one event. inserted is false and id is 0 when
-// (sessionID, seq) was already stored.
-func (s *Store) InsertEvent(ctx context.Context, sessionID string, seq int, typ string, ts time.Time, data json.RawMessage) (int64, bool, error) {
+// (sessionID, clientID, seq) was already stored.
+func (s *Store) InsertEvent(ctx context.Context, sessionID, clientID string, seq int, typ string, ts time.Time, data json.RawMessage) (int64, bool, error) {
 	id, err := s.q.InsertEvent(ctx, gen.InsertEventParams{
 		SessionID: sessionID,
+		ClientID:  clientID,
 		Seq:       int32(seq),
 		Type:      typ,
 		Ts:        ts,
@@ -205,13 +208,13 @@ func (s *Store) InsertEvent(ctx context.Context, sessionID string, seq int, typ 
 		return 0, false, nil
 	}
 	if err != nil {
-		return 0, false, fmt.Errorf("insert event %s/%d: %w", sessionID, seq, err)
+		return 0, false, fmt.Errorf("insert event %s/%s/%d: %w", sessionID, clientID, seq, err)
 	}
 	return id, true, nil
 }
 
-// ListEventsBySession returns every event of a session ordered by ts, then
-// seq. A session with no events yields an empty, non-nil slice.
+// ListEventsBySession returns every event of a session ordered by ts, seq,
+// then client_id. A session with no events yields an empty, non-nil slice.
 func (s *Store) ListEventsBySession(ctx context.Context, id string) ([]Event, error) {
 	rows, err := s.q.ListEventsBySession(ctx, id)
 	if err != nil {
@@ -276,6 +279,7 @@ func summaryFromRow(r gen.ListSessionsRow) SessionSummary {
 		out.LastKeyEvent = &Event{
 			ID:         r.LastKeyID,
 			SessionID:  r.SessionID,
+			ClientID:   r.LastKeyClientID,
 			Seq:        int(r.LastKeySeq),
 			Type:       r.LastKeyType,
 			TS:         r.LastKeyTs.UTC(),
@@ -290,6 +294,7 @@ func eventFromRow(r gen.Event) Event {
 	return Event{
 		ID:         r.ID,
 		SessionID:  r.SessionID,
+		ClientID:   r.ClientID,
 		Seq:        int(r.Seq),
 		Type:       r.Type,
 		TS:         r.Ts.UTC(),

@@ -11,6 +11,7 @@ function setup(sendImpl?: (b: IngestBatch) => Promise<void>, extra: Record<strin
   const b = createBatcher({
     sessionId: "s1",
     spaceId: "sp",
+    clientId: "c1",
     send,
     clock: t,
     flushIntervalMs: 500,
@@ -36,6 +37,7 @@ describe("batcher", () => {
     expect(send.mock.calls[0]?.[0]).toEqual({
       session_id: "s1",
       space_id: "sp",
+      client_id: "c1",
       events: [ev(1), ev(2), ev(3)],
     });
     expect(b.size()).toBe(0);
@@ -87,6 +89,17 @@ describe("batcher", () => {
     expect(send).toHaveBeenCalledTimes(2);
     expect(send.mock.calls[0]?.[0].events.map((e) => e.seq)).toEqual([1, 2]);
     expect(send.mock.calls[1]?.[0].events.map((e) => e.seq)).toEqual([3]);
+  });
+
+  it("every batch carries the same client_id", async () => {
+    const { b, send, t } = setup(undefined, { maxBatchSize: 2 });
+    b.add(ev(1));
+    b.add(ev(2)); // hits max → immediate flush
+    await Promise.resolve();
+    b.add(ev(3));
+    await t.tick();
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls.map((c) => c[0].client_id)).toEqual(["c1", "c1"]);
   });
 
   it("flush on an empty queue does not call send", async () => {

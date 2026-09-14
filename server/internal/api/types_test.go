@@ -24,9 +24,9 @@ func TestToEvent(t *testing.T) {
 	data := json.RawMessage(`{"tag":"button","x":1.50}`)
 
 	got := toEvent(session.Event{
-		ID: 9, SessionID: "s1", Seq: 7, Type: "click", TS: ts, ReceivedAt: received, Data: data,
+		ID: 9, SessionID: "s1", ClientID: "c1", Seq: 7, Type: "click", TS: ts, ReceivedAt: received, Data: data,
 	})
-	if got.Seq != 7 || got.Type != "click" || got.TS != 1767322445123 || !got.ReceivedAt.Equal(received) {
+	if got.ClientID != "c1" || got.Seq != 7 || got.Type != "click" || got.TS != 1767322445123 || !got.ReceivedAt.Equal(received) {
 		t.Errorf("toEvent = %+v", got)
 	}
 	if string(got.Data) != string(data) {
@@ -34,7 +34,7 @@ func TestToEvent(t *testing.T) {
 	}
 
 	body := marshal(t, got)
-	for _, want := range []string{`"ts":1767322445123`, `"data":{"tag":"button","x":1.50}`, `"received_at":"2026-01-02T03:04:05Z"`, `"seq":7`} {
+	for _, want := range []string{`"ts":1767322445123`, `"data":{"tag":"button","x":1.50}`, `"received_at":"2026-01-02T03:04:05Z"`, `"seq":7`, `"client_id":"c1"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("json %s lacks %s", body, want)
 		}

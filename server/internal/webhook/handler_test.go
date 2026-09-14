@@ -313,7 +313,7 @@ func TestRoundTripWithIngestedEvents(t *testing.T) {
 		t.Fatalf("started outcome = %q", got)
 	}
 	ts := time.Date(2025, 2, 7, 17, 9, 0, 0, time.UTC)
-	res, err := f.lc.RecordEvents(ctx, sessionID, "23", ts, []session.NewEvent{
+	res, err := f.lc.RecordEvents(ctx, sessionID, "23", "c1", ts, []session.NewEvent{
 		{Type: event.Click, Seq: 1, TS: ts},
 		{Type: event.FormSubmit, Seq: 2, TS: ts.Add(time.Second)},
 	})

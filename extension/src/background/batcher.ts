@@ -2,7 +2,7 @@
  * Batches SessionEvents into IngestBatch payloads.
  * Flushes every `flushIntervalMs`, immediately on a key event, or when `maxBatchSize` is
  * reached. A failed send re-queues the batch at the front (server dedups on
- * (session_id, seq)) and backs off exponentially.
+ * (session_id, client_id, seq)) and backs off exponentially.
  */
 import { isKeyEvent as defaultIsKeyEvent, type IngestBatch, type SessionEvent } from "../../../shared/types";
 import { systemClock, type Clock } from "./clock";
@@ -14,6 +14,7 @@ export const MAX_BACKOFF_MS = 10_000;
 export interface BatcherOptions {
   sessionId: string;
   spaceId: string;
+  clientId: string;
   send: (batch: IngestBatch) => Promise<void>;
   clock?: Clock;
   // internal-seam tuning; the recorder uses the defaults.
@@ -35,6 +36,7 @@ export function createBatcher(opts: BatcherOptions): Batcher {
   const {
     sessionId,
     spaceId,
+    clientId,
     send,
     clock = systemClock,
     flushIntervalMs = FLUSH_INTERVAL_MS,
@@ -68,7 +70,7 @@ export function createBatcher(opts: BatcherOptions): Batcher {
     queue = queue.slice(maxBatchSize);
     sending = true;
     try {
-      await send({ session_id: sessionId, space_id: spaceId, events });
+      await send({ session_id: sessionId, space_id: spaceId, client_id: clientId, events });
       failures = 0;
     } catch (err) {
       failures += 1;

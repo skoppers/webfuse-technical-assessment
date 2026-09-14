@@ -15,7 +15,7 @@ function setup(sendImpl?: (b: IngestBatch) => Promise<void>) {
   const t = createManualClock();
   const send = vi.fn(sendImpl ?? (async () => undefined));
   const onUpdate = vi.fn();
-  const r = createRecorder({ sessionId: "s1", spaceId: "sp", send, onUpdate, clock: t });
+  const r = createRecorder({ sessionId: "s1", spaceId: "sp", clientId: "c1", send, onUpdate, clock: t });
   return { r, send, onUpdate, t };
 }
 
@@ -183,6 +183,23 @@ describe("recorder", () => {
     expect(state.recent.map((e: { seq: number }) => e.seq)).toEqual([1, 2]);
     t.advance(200);
     expect(r.snapshot()).toEqual(state);
+  });
+
+  it("two recorders with different client ids send batches with different client_id", async () => {
+    const make = (clientId: string) => {
+      const send = vi.fn(async (_batch: IngestBatch) => undefined);
+      const r = createRecorder({ sessionId: "s1", spaceId: "sp", clientId, send, clock: createManualClock() });
+      return { r, send };
+    };
+    const a = make("a");
+    const b = make("b");
+    a.r.record(cap("form_submit", 0, { fieldCount: 1 }));
+    b.r.record(cap("form_submit", 0, { fieldCount: 1 }));
+    await Promise.resolve();
+    expect(a.send).toHaveBeenCalledTimes(1);
+    expect(b.send).toHaveBeenCalledTimes(1);
+    expect(a.send.mock.calls[0]?.[0].client_id).toBe("a");
+    expect(b.send.mock.calls[0]?.[0].client_id).toBe("b");
   });
 
   it("re-queues a failed batch and later sends it with seq order preserved", async () => {

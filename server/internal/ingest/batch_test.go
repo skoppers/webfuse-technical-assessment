@@ -17,6 +17,7 @@ func valid() Batch {
 	return Batch{
 		SessionID: "s1",
 		SpaceID:   "sp",
+		ClientID:  "c1",
 		Events: []Event{
 			{Type: "click", Seq: 1, TS: now.UnixMilli(), Data: json.RawMessage(`{"tag":"button"}`)},
 			{Type: "form_submit", Seq: 2, TS: now.Add(time.Second).UnixMilli()},
@@ -36,6 +37,10 @@ func TestValidate(t *testing.T) {
 		{"session_id too long", func(b *Batch) { b.SessionID = strings.Repeat("x", 129) }, "session_id"},
 		{"session_id at limit", func(b *Batch) { b.SessionID = strings.Repeat("x", 128) }, ""},
 		{"empty space_id", func(b *Batch) { b.SpaceID = "" }, "space_id"},
+		{"empty client_id", func(b *Batch) { b.ClientID = "" }, "client_id"},
+		{"client_id too long", func(b *Batch) { b.ClientID = strings.Repeat("x", 65) }, "client_id"},
+		{"client_id at limit", func(b *Batch) { b.ClientID = strings.Repeat("x", 64) }, ""},
+		{"client_id multibyte at limit", func(b *Batch) { b.ClientID = strings.Repeat("é", 64) }, ""},
 		{"no events", func(b *Batch) { b.Events = nil }, "events"},
 		{"501 events", func(b *Batch) { b.Events = repeatEvents(501) }, "events"},
 		{"500 events", func(b *Batch) { b.Events = repeatEvents(500) }, ""},
@@ -85,7 +90,7 @@ func TestValidateDecodedJSON(t *testing.T) {
 	// The same rules hold for a batch decoded off the wire, where a missing
 	// data key is nil and an explicit null is the literal.
 	var b Batch
-	body := `{"session_id":"s1","space_id":"sp","events":[
+	body := `{"session_id":"s1","space_id":"sp","client_id":"c1","events":[
 		{"type":"click","seq":1,"ts":` + itoa(now.UnixMilli()) + `},
 		{"type":"scroll","seq":2,"ts":` + itoa(now.UnixMilli()) + `,"data":null},
 		{"type":"input","seq":3,"ts":` + itoa(now.UnixMilli()) + `,"data":{"len":3}}]}`

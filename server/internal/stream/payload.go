@@ -18,10 +18,12 @@ type SessionPayload struct {
 }
 
 // ActivityPayload is the data of an "activity" message: one captured session
-// event. TS is the client's timestamp in epoch milliseconds, the same unit the
-// extension sends.
+// event. ClientID names the background boot that sent it; (client_id, seq)
+// identifies the event within its session. TS is the client's timestamp in
+// epoch milliseconds, the same unit the extension sends.
 type ActivityPayload struct {
 	SessionID string          `json:"session_id"`
+	ClientID  string          `json:"client_id"`
 	Type      string          `json:"type"`
 	Seq       int             `json:"seq"`
 	TS        int64           `json:"ts"`

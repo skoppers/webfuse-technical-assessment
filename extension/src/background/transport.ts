@@ -2,7 +2,7 @@
  * Transport for IngestBatch → server: one POST per batch to `${COLLECTOR_URL}/ingest`.
  *
  * Throws on network failure or a non-2xx response so the batcher re-queues the batch and
- * backs off (server dedups on (session_id, seq), so retries are safe). With no
+ * backs off (server dedups on (session_id, client_id, seq), so retries are safe). With no
  * COLLECTOR_URL configured it logs once and drops batches rather than throwing forever.
  *
  * Requires `host_permissions` for the collector origin and CORS headers from the server

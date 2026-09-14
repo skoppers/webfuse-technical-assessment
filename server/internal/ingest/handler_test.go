@@ -108,7 +108,7 @@ func TestPostStoresPublishesAndDedups(t *testing.T) {
 	f := newFixture(t, "s1")
 	base := time.Now().Add(-time.Minute).UnixMilli()
 	body := batchJSON(t, Batch{
-		SessionID: "s1", SpaceID: "sp",
+		SessionID: "s1", SpaceID: "sp", ClientID: "c1",
 		Events: []Event{
 			{Type: "click", Seq: 1, TS: base, Data: json.RawMessage(`{"tag":"button"}`)},
 			{Type: "form_submit", Seq: 2, TS: base + 1000, Data: json.RawMessage(`{"fieldCount":3}`)},
@@ -139,7 +139,7 @@ func TestPostStoresPublishesAndDedups(t *testing.T) {
 		if m.Event != stream.EventActivity || !ok {
 			t.Fatalf("message %d = %+v, want activity", i, m)
 		}
-		if p.Type != wantType[i] || p.Seq != i+1 || m.Key != wantKey[i] {
+		if p.Type != wantType[i] || p.Seq != i+1 || p.ClientID != "c1" || m.Key != wantKey[i] {
 			t.Errorf("activity %d: key=%v payload=%+v", i, m.Key, p)
 		}
 		if p.Type == "form_submit" && string(p.Data) != `{"fieldCount":3}` {
@@ -168,9 +168,10 @@ func TestPostRejectsBadRequests(t *testing.T) {
 	}{
 		{"invalid JSON", `{"session_id":`, "invalid JSON"},
 		{"empty body", ``, "empty body"},
-		{"missing space_id", batchJSON(t, Batch{SessionID: "s1", Events: []Event{{Type: "click", Seq: 1, TS: time.Now().UnixMilli()}}}), "space_id"},
-		{"bad seq", batchJSON(t, Batch{SessionID: "s1", SpaceID: "sp", Events: []Event{{Type: "click", Seq: 0, TS: time.Now().UnixMilli()}}}), "events[0].seq"},
-		{"unknown type", batchJSON(t, Batch{SessionID: "s1", SpaceID: "sp", Events: []Event{{Type: "mousemove", Seq: 1, TS: time.Now().UnixMilli()}}}), "events[0].type"},
+		{"missing space_id", batchJSON(t, Batch{SessionID: "s1", ClientID: "c1", Events: []Event{{Type: "click", Seq: 1, TS: time.Now().UnixMilli()}}}), "space_id"},
+		{"missing client_id", batchJSON(t, Batch{SessionID: "s1", SpaceID: "sp", Events: []Event{{Type: "click", Seq: 1, TS: time.Now().UnixMilli()}}}), "client_id"},
+		{"bad seq", batchJSON(t, Batch{SessionID: "s1", SpaceID: "sp", ClientID: "c1", Events: []Event{{Type: "click", Seq: 0, TS: time.Now().UnixMilli()}}}), "events[0].seq"},
+		{"unknown type", batchJSON(t, Batch{SessionID: "s1", SpaceID: "sp", ClientID: "c1", Events: []Event{{Type: "mousemove", Seq: 1, TS: time.Now().UnixMilli()}}}), "events[0].type"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -100,7 +100,7 @@ export interface EventDataByType {
 
 export interface SessionEvent {
   type: EventType;
-  /** Monotonic per session, assigned by the extension background. */
+  /** Monotonic per client (one background boot), assigned by the extension background. */
   seq: number;
   /** Client epoch-ms at capture time. */
   ts: number;
@@ -111,5 +111,11 @@ export interface SessionEvent {
 export interface IngestBatch {
   session_id: string;
   space_id: string;
+  /**
+   * Random id generated once per boot of one participant's background. With `seq` it
+   * forms the server's idempotency key `(session_id, client_id, seq)`, so two participants
+   * (or a restarted background) each counting from seq 1 never collide.
+   */
+  client_id: string;
   events: SessionEvent[];
 }

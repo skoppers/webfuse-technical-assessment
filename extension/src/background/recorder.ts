@@ -18,6 +18,8 @@ import { createSensitiveDetector, type SensitiveSource } from "./sensitiveDetect
 export interface RecorderOptions {
   sessionId: string;
   spaceId: string;
+  /** Generated once per background boot by the caller; never generated here. */
+  clientId: string;
   send: (batch: IngestBatch) => Promise<void>;
   /** Called after every accepted event with the event and the fresh meter state (popup fan-out). */
   onUpdate?: (event: SessionEvent, state: MeterState) => void;
@@ -43,12 +45,12 @@ export interface Recorder {
   snapshot(): MeterState;
 }
 
-export function createRecorder({ sessionId, spaceId, send, onUpdate, clock = systemClock }: RecorderOptions): Recorder {
+export function createRecorder({ sessionId, spaceId, clientId, send, onUpdate, clock = systemClock }: RecorderOptions): Recorder {
   const meter = createMeter({ clock });
   const sensitive = createSensitiveDetector({ clock });
-  const batcher = createBatcher({ sessionId, spaceId, send, clock });
+  const batcher = createBatcher({ sessionId, spaceId, clientId, send, clock });
 
-  /** Monotonic per-session sequence; the server's idempotency key is (session_id, seq). */
+  /** Monotonic per-client sequence; the server's idempotency key is (session_id, client_id, seq). */
   let seq = 0;
   let ended = false;
 

@@ -155,7 +155,7 @@ func TestStartedEnrichesEventStub(t *testing.T) {
 	now := ts.Add(time.Minute)
 
 	// First event creates a stub (source event); a late started webhook enriches it.
-	if _, err := f.lc.RecordEvents(ctx, "s1", "sp", now, []NewEvent{{Type: event.Click, Seq: 1, TS: ts}}); err != nil {
+	if _, err := f.lc.RecordEvents(ctx, "s1", "sp", "c1", now, []NewEvent{{Type: event.Click, Seq: 1, TS: ts}}); err != nil {
 		t.Fatal(err)
 	}
 	if p := sessionPayload(t, recv(t, f.overview)); p.SpaceID != "sp" || p.ParticipantCount != 0 {
@@ -258,13 +258,57 @@ func TestParticipantsChangedCreatesStub(t *testing.T) {
 	}
 }
 
+// TestRecordEventsDedupsPerClient: two participants (or one restarted
+// background) both start seq at 1; the key is (session, client, seq), so
+// both are stored and only a retry of the same (client, seq) is a duplicate.
+func TestRecordEventsDedupsPerClient(t *testing.T) {
+	f := newFixture(t, "s1")
+	ctx := context.Background()
+	base := time.UnixMilli(1767322445000).UTC()
+	now := base.Add(time.Minute)
+	batch := []NewEvent{{Type: event.Click, Seq: 1, TS: base}}
+
+	for _, client := range []string{"owner", "viewer"} {
+		res, err := f.lc.RecordEvents(ctx, "s1", "sp", client, now, batch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Inserted != 1 || res.Duplicates != 0 {
+			t.Errorf("client %s: %+v, want 1 inserted", client, res)
+		}
+	}
+	sessionPayload(t, recv(t, f.one)) // stub session
+	for _, client := range []string{"owner", "viewer"} {
+		if p := activityPayload(t, recv(t, f.one)); p.ClientID != client || p.Seq != 1 {
+			t.Errorf("published %+v, want client %s seq 1", p, client)
+		}
+	}
+
+	res, err := f.lc.RecordEvents(ctx, "s1", "sp", "viewer", now, batch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Inserted != 0 || res.Duplicates != 1 {
+		t.Errorf("retry: %+v, want 1 duplicate", res)
+	}
+	assertNone(t, f.one)
+
+	events, err := f.lc.Events(ctx, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[0].ClientID != "owner" || events[1].ClientID != "viewer" {
+		t.Errorf("stored %+v, want owner/1 then viewer/1", events)
+	}
+}
+
 func TestRecordEventsDedupsAndPublishesNewOnly(t *testing.T) {
 	f := newFixture(t, "s1")
 	ctx := context.Background()
 	base := time.UnixMilli(1767322445000).UTC()
 	now := base.Add(time.Minute)
 
-	res, err := f.lc.RecordEvents(ctx, "s1", "sp", now, []NewEvent{
+	res, err := f.lc.RecordEvents(ctx, "s1", "sp", "c1", now, []NewEvent{
 		{Type: event.Click, Seq: 2, TS: base.Add(time.Second), Data: json.RawMessage(`{"tag":"button"}`)},
 		{Type: event.FormSubmit, Seq: 3, TS: base.Add(2 * time.Second), Data: json.RawMessage(`{"fieldCount":3}`)},
 		{Type: event.Scroll, Seq: 1, TS: base},
@@ -309,7 +353,7 @@ func TestRecordEventsDedupsAndPublishesNewOnly(t *testing.T) {
 	assertNone(t, f.overview)
 
 	// Retry of the same batch plus one new event: only the new one is stored and published.
-	res, err = f.lc.RecordEvents(ctx, "s1", "sp", now, []NewEvent{
+	res, err = f.lc.RecordEvents(ctx, "s1", "sp", "c1", now, []NewEvent{
 		{Type: event.Click, Seq: 2, TS: base.Add(time.Second)},
 		{Type: event.FormSubmit, Seq: 3, TS: base.Add(2 * time.Second)},
 		{Type: event.Navigation, Seq: 4, TS: base.Add(3 * time.Second), Data: json.RawMessage(`{"url":"/x"}`)},
@@ -341,14 +385,14 @@ func TestRecordEventsRejectsInvalid(t *testing.T) {
 	ts := time.Now()
 	now := ts
 
-	_, err := f.lc.RecordEvents(ctx, "s1", "sp", now, []NewEvent{
+	_, err := f.lc.RecordEvents(ctx, "s1", "sp", "c1", now, []NewEvent{
 		{Type: event.Click, Seq: 1, TS: ts},
 		{Type: "mousemove", Seq: 2, TS: ts},
 	})
 	if !errors.Is(err, ErrInvalidEventType) {
 		t.Fatalf("err = %v, want ErrInvalidEventType", err)
 	}
-	if _, err := f.lc.RecordEvents(ctx, "s1", "sp", now, nil); !errors.Is(err, ErrEmptyBatch) {
+	if _, err := f.lc.RecordEvents(ctx, "s1", "sp", "c1", now, nil); !errors.Is(err, ErrEmptyBatch) {
 		t.Fatalf("empty: err = %v, want ErrEmptyBatch", err)
 	}
 	// Whole batch rejected: no session, no events, no messages.
@@ -376,7 +420,7 @@ func TestLateEventsOnEndedSessionAreStoredNotRevived(t *testing.T) {
 	recv(t, f.one)
 	recv(t, f.one)
 
-	res, err := f.lc.RecordEvents(ctx, "s1", "sp", now, []NewEvent{{Type: event.SensitiveURL, Seq: 1, TS: at.Add(30 * time.Second)}})
+	res, err := f.lc.RecordEvents(ctx, "s1", "sp", "c1", now, []NewEvent{{Type: event.SensitiveURL, Seq: 1, TS: at.Add(30 * time.Second)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,12 +451,12 @@ func TestReapIdle(t *testing.T) {
 	now := time.Date(2026, 1, 2, 3, 10, 0, 0, time.UTC)
 
 	// idle: one event, backdated two minutes.
-	if _, err := f.lc.RecordEvents(ctx, "idle", "sp", now.Add(-10*time.Minute), []NewEvent{{Type: event.Click, Seq: 1, TS: now.Add(-10 * time.Minute)}}); err != nil {
+	if _, err := f.lc.RecordEvents(ctx, "idle", "sp", "c1", now.Add(-10*time.Minute), []NewEvent{{Type: event.Click, Seq: 1, TS: now.Add(-10 * time.Minute)}}); err != nil {
 		t.Fatal(err)
 	}
 	setReceivedAt(t, f.db, "idle", now.Add(-2*time.Minute))
 	// active: event ten seconds ago.
-	if _, err := f.lc.RecordEvents(ctx, "active", "sp", now.Add(-10*time.Minute), []NewEvent{{Type: event.Click, Seq: 1, TS: now.Add(-10 * time.Minute)}}); err != nil {
+	if _, err := f.lc.RecordEvents(ctx, "active", "sp", "c1", now.Add(-10*time.Minute), []NewEvent{{Type: event.Click, Seq: 1, TS: now.Add(-10 * time.Minute)}}); err != nil {
 		t.Fatal(err)
 	}
 	setReceivedAt(t, f.db, "active", now.Add(-10*time.Second))

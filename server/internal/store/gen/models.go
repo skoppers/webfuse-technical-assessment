@@ -18,6 +18,7 @@ type Event struct {
 	Ts         time.Time
 	ReceivedAt time.Time
 	Data       json.RawMessage
+	ClientID   string
 }
 
 type Session struct {

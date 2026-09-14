@@ -15,8 +15,11 @@ func TestMigrate(t *testing.T) {
 			t.Errorf("table %q missing after migrate", table)
 		}
 	}
-	if !constraintExists(t, db, "events_session_id_seq_key", "u") {
-		t.Error("unique constraint on events(session_id, seq) missing")
+	if !constraintExists(t, db, "events_session_id_client_id_seq_key", "u") {
+		t.Error("unique constraint on events(session_id, client_id, seq) missing")
+	}
+	if constraintExists(t, db, "events_session_id_seq_key", "u") {
+		t.Error("old unique constraint on events(session_id, seq) still present")
 	}
 
 	// A second run must find nothing to apply and leave the version unchanged.
@@ -71,6 +74,48 @@ func TestMigrateDownAndUp(t *testing.T) {
 		if !tableExists(t, db, table) {
 			t.Errorf("table %q missing after re-up", table)
 		}
+	}
+}
+
+// TestMigrateClientIDOnExistingRows applies 00002 to a database that already
+// holds events written under 00001: they keep client_id ” and stay valid,
+// and a client may then reuse a seq those rows already used.
+func TestMigrateClientIDOnExistingRows(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+
+	p, err := newProvider(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.DownTo(ctx, 1); err != nil {
+		t.Fatalf("down to 1: %v", err)
+	}
+	if !constraintExists(t, db, "events_session_id_seq_key", "u") || constraintExists(t, db, "events_session_id_client_id_seq_key", "u") {
+		t.Fatal("schema after down is not 00001")
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO sessions (session_id, status, started_at, source) VALUES ('old', 'live', now(), 'event')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO events (session_id, seq, type, ts) VALUES ('old', 1, 'click', now()), ('old', 2, 'click', now())`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate with existing rows: %v", err)
+	}
+	if constraintExists(t, db, "events_session_id_seq_key", "u") || !constraintExists(t, db, "events_session_id_client_id_seq_key", "u") {
+		t.Error("unique key not moved to (session_id, client_id, seq)")
+	}
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM events WHERE session_id = 'old' AND client_id = ''`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("%d pre-existing rows have client_id '', want 2", n)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO events (session_id, client_id, seq, type, ts) VALUES ('old', 'c1', 1, 'click', now())`); err != nil {
+		t.Errorf("seq 1 from a new client rejected after migration: %v", err)
 	}
 }
 

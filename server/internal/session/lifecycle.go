@@ -150,14 +150,15 @@ func (l *Lifecycle) ParticipantsChanged(ctx context.Context, p ParticipantsParam
 	return s, changed, nil
 }
 
-// RecordEvents stores an ingest batch for a session. Every type must be in
-// the event contract or the whole batch is rejected with ErrInvalidEventType.
-// An unknown session is created as a live stub (source event) started at now,
-// the server's receive time, and announced; an ended session is never revived
-// but its late events are still stored.
-// Events already stored for (session, seq) are counted as duplicates. Each
-// newly stored event is published as an activity message.
-func (l *Lifecycle) RecordEvents(ctx context.Context, sessionID, spaceID string, now time.Time, events []NewEvent) (RecordResult, error) {
+// RecordEvents stores an ingest batch for a session. clientID names the
+// background boot that sent the batch; seq is monotonic only within it. Every
+// type must be in the event contract or the whole batch is rejected with
+// ErrInvalidEventType. An unknown session is created as a live stub (source
+// event) started at now, the server's receive time, and announced; an ended
+// session is never revived but its late events are still stored.
+// Events already stored for (session_id, client_id, seq) are counted as
+// duplicates. Each newly stored event is published as an activity message.
+func (l *Lifecycle) RecordEvents(ctx context.Context, sessionID, spaceID, clientID string, now time.Time, events []NewEvent) (RecordResult, error) {
 	if len(events) == 0 {
 		return RecordResult{}, ErrEmptyBatch
 	}
@@ -177,7 +178,7 @@ func (l *Lifecycle) RecordEvents(ctx context.Context, sessionID, spaceID string,
 
 	res := RecordResult{Session: s}
 	for _, e := range events {
-		id, ok, err := l.st.InsertEvent(ctx, sessionID, e.Seq, string(e.Type), e.TS, e.Data)
+		id, ok, err := l.st.InsertEvent(ctx, sessionID, clientID, e.Seq, string(e.Type), e.TS, e.Data)
 		if err != nil {
 			return res, err
 		}
@@ -187,7 +188,7 @@ func (l *Lifecycle) RecordEvents(ctx context.Context, sessionID, spaceID string,
 		}
 		res.Inserted++
 		l.hub.Publish(activityMessage(Event{
-			ID: id, SessionID: sessionID, Seq: e.Seq, Type: string(e.Type), TS: e.TS, Data: e.Data,
+			ID: id, SessionID: sessionID, ClientID: clientID, Seq: e.Seq, Type: string(e.Type), TS: e.TS, Data: e.Data,
 		}))
 	}
 	return res, nil
@@ -227,7 +228,7 @@ func (l *Lifecycle) List(ctx context.Context, limit int) ([]SessionSummary, erro
 	return l.st.ListSessions(ctx, limit, event.KeyTypes())
 }
 
-// Events returns every stored event of a session ordered by ts, then seq.
+// Events returns every stored event of a session ordered by ts, seq, then client_id.
 func (l *Lifecycle) Events(ctx context.Context, id string) ([]Event, error) {
 	return l.st.ListEventsBySession(ctx, id)
 }
@@ -258,6 +259,7 @@ func activityMessage(e Event) stream.Message {
 		Key:       event.IsKey(event.Type(e.Type)),
 		Data: stream.ActivityPayload{
 			SessionID: e.SessionID,
+			ClientID:  e.ClientID,
 			Type:      e.Type,
 			Seq:       e.Seq,
 			TS:        e.TS.UnixMilli(),

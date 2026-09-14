@@ -34,10 +34,12 @@ type SessionSummary struct {
 	LastKeyEvent  *Event `json:"last_key_event"`
 }
 
-// Event is one stored session event. TS is the client's timestamp in epoch
-// milliseconds, the unit ingest accepts, so replay works in the same unit;
-// ReceivedAt is when the server stored it, RFC 3339.
+// Event is one stored session event. ClientID is the sending background
+// boot; (client_id, seq) is unique within the session. TS is the client's
+// timestamp in epoch milliseconds, the unit ingest accepts, so replay works
+// in the same unit; ReceivedAt is when the server stored it, RFC 3339.
 type Event struct {
+	ClientID   string          `json:"client_id"`
 	Seq        int             `json:"seq"`
 	Type       string          `json:"type"`
 	TS         int64           `json:"ts"`
@@ -72,6 +74,7 @@ func toSummary(s session.SessionSummary) SessionSummary {
 // toEvent maps an event row to its response shape.
 func toEvent(e session.Event) Event {
 	return Event{
+		ClientID:   e.ClientID,
 		Seq:        e.Seq,
 		Type:       e.Type,
 		TS:         e.TS.UnixMilli(),

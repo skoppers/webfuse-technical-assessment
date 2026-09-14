@@ -90,7 +90,7 @@ func seed(t *testing.T, lc *session.Lifecycle) {
 		{Type: "sensitive_url", Seq: 5, TS: base.Add(4 * time.Second), Data: json.RawMessage(`{"category":"payment"}`)},
 		{Type: "form_submit", Seq: 6, TS: base.Add(3 * time.Second)},
 	}
-	res, err := lc.RecordEvents(ctx, liveID, "sp", base, events)
+	res, err := lc.RecordEvents(ctx, liveID, "sp", "c1", base, events)
 	if err != nil || res.Inserted != len(events) {
 		t.Fatalf("record events: inserted=%d err=%v", res.Inserted, err)
 	}
@@ -175,7 +175,7 @@ func TestListSessions(t *testing.T) {
 	// Raw shape: ended_at null for the live session, metadata an object.
 	body := rec.Body.String()
 	for _, want := range []string{`"ended_at":null`, `"metadata":{}`, `"source":"webhook"`,
-		`"key_event_count":0`, `"last_key_event":null`, `"last_key_event":{"seq":5,`} {
+		`"key_event_count":0`, `"last_key_event":null`, `"last_key_event":{"client_id":"c1","seq":5,`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body %s lacks %s", body, want)
 		}

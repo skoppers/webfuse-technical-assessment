@@ -12,7 +12,7 @@ src/
   capture/*.ts           internals: throttle, history hooks, scroll tracker, element → payload
   background/index.ts    browser-API wiring only: messages, tabs.onUpdated, session_ended → recorder
   background/recorder.ts session recorder: owns the pipeline (seq, sensitive_url detection + dedup, meter, batcher, popup fan-out)
-  background/*.ts        internals: clock, meter, batcher, transport (fetch POST to /ingest), sensitiveDetector, popupBridge, session
+  background/*.ts        internals: clock, meter, batcher, transport (fetch POST to /ingest; every batch carries a per-boot client_id), sensitiveDetector, popupBridge, session
   popup.html / popup.ts  pinned live meter (vanilla DOM)
   popup/render.ts        pure label/rate/time formatters
   messages.ts            internal message protocol + type guards
